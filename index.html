@@ -1,0 +1,1518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#1a1a2e" />
+<title>Denny Teaching Hub — Clone</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<style>
+  :root {
+    --bg-0: #0f0f1e;
+    --bg-1: #1a1a2e;
+    --bg-2: #232342;
+    --bg-3: #2d2d52;
+    --accent: #8b5cf6;
+    --accent-2: #6366f1;
+    --accent-glow: rgba(139, 92, 246, 0.4);
+    --text-1: #f1f5f9;
+    --text-2: #94a3b8;
+    --text-3: #64748b;
+    --border: rgba(139, 92, 246, 0.15);
+    --border-2: rgba(255, 255, 255, 0.06);
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+  }
+  html, body, #root { height: 100%; }
+  body {
+    margin: 0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(139, 92, 246, 0.18), transparent 60%),
+      radial-gradient(900px 500px at -10% 30%, rgba(99, 102, 241, 0.12), transparent 60%),
+      var(--bg-0);
+    color: var(--text-1);
+    overflow-x: hidden;
+  }
+  .glass {
+    background: linear-gradient(180deg, rgba(35, 35, 66, 0.55), rgba(26, 26, 46, 0.45));
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+  }
+  .glass-strong {
+    background: linear-gradient(180deg, rgba(35, 35, 66, 0.85), rgba(26, 26, 46, 0.85));
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+  }
+  .gradient-text {
+    background: linear-gradient(135deg, #c4b5fd 0%, #8b5cf6 50%, #6366f1 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    box-shadow: 0 4px 20px var(--accent-glow);
+    transition: all 0.2s ease;
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 30px var(--accent-glow); }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 3px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .fade-in { animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .stat-glow { box-shadow: 0 0 40px rgba(139, 92, 246, 0.15) inset; }
+  .row-hover:hover { background: rgba(139, 92, 246, 0.06); }
+  .modal-backdrop { background: rgba(15, 15, 30, 0.75); backdrop-filter: blur(4px); }
+  input, select, textarea {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    color: var(--text-1);
+    transition: all 0.15s ease;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  }
+  .heat-1 { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+  .heat-2 { background: rgba(139, 92, 246, 0.18); color: #c4b5fd; }
+  .heat-3 { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+  .heat-4 { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+// ============================================================
+//  DATABASE LAYER — localStorage with seed data
+// ============================================================
+const DB_KEY = 'denny_teaching_hub_v2';
+const seed = () => ({
+  user: { name: 'Denny Nguyen', role: 'Instructor', email: 'denny@dennynguyen.online' },
+  courses: [
+    { id: 'c1', code: 'MKT301', name: 'Principles of Marketing', credits: 3, dept: 'Marketing', term: 'Fall 2026', status: 'Active' },
+    { id: 'c2', code: 'MKT420', name: 'Consumer Behavior', credits: 3, dept: 'Marketing', term: 'Fall 2026', status: 'Active' },
+    { id: 'c3', code: 'BUS210', name: 'Business Statistics', credits: 4, dept: 'Business', term: 'Fall 2026', status: 'Active' },
+    { id: 'c4', code: 'STR450', name: 'Strategic Management', credits: 3, dept: 'Business', term: 'Spring 2026', status: 'Archived' },
+  ],
+  classes: [
+    { id: 'cl1', courseId: 'c1', section: 'A', schedule: 'Mon/Wed 9:00-10:30', room: 'B-204', enrolled: 38, capacity: 45 },
+    { id: 'cl2', courseId: 'c1', section: 'B', schedule: 'Tue/Thu 13:00-14:30', room: 'B-208', enrolled: 41, capacity: 45 },
+    { id: 'cl3', courseId: 'c2', section: 'A', schedule: 'Mon/Wed 15:00-16:30', room: 'C-101', enrolled: 28, capacity: 35 },
+    { id: 'cl4', courseId: 'c3', section: 'A', schedule: 'Fri 8:00-11:00', room: 'A-302', enrolled: 52, capacity: 60 },
+  ],
+  students: [
+    { id: 's1', studentId: 'CP24001', name: 'Nguyen Anh Minh', email: 'minh.na@cp.edu', classId: 'cl1', gpa: 3.7, attendance: 94 },
+    { id: 's2', studentId: 'CP24002', name: 'Tran Bao Han', email: 'han.tb@cp.edu', classId: 'cl1', gpa: 3.4, attendance: 88 },
+    { id: 's3', studentId: 'CP24003', name: 'Le Thi Quynh', email: 'quynh.lt@cp.edu', classId: 'cl2', gpa: 3.9, attendance: 97 },
+    { id: 's4', studentId: 'CP24004', name: 'Pham Duc Hieu', email: 'hieu.pd@cp.edu', classId: 'cl2', gpa: 3.1, attendance: 79 },
+    { id: 's5', studentId: 'CP24005', name: 'Vu Khanh Linh', email: 'linh.vk@cp.edu', classId: 'cl3', gpa: 3.6, attendance: 91 },
+    { id: 's6', studentId: 'CP24006', name: 'Hoang Minh Tu', email: 'tu.hm@cp.edu', classId: 'cl4', gpa: 2.9, attendance: 72 },
+    { id: 's7', studentId: 'CP24007', name: 'Do Mai Lan', email: 'lan.dm@cp.edu', classId: 'cl4', gpa: 3.8, attendance: 96 },
+  ],
+  matrix: [
+    // ACBSP Standards 1–6 × Courses
+    { id: 'm1', courseId: 'c1', standard: 'S1: Leadership', method: 'Capstone Project', target: 80, actual: 84, term: 'Fall 2026' },
+    { id: 'm2', courseId: 'c1', standard: 'S4: Measurement & Analysis', method: 'Mid-term Exam', target: 75, actual: 78, term: 'Fall 2026' },
+    { id: 'm3', courseId: 'c1', standard: 'S5: Faculty & Staff', method: 'Peer Review', target: 80, actual: 72, term: 'Fall 2026' },
+    { id: 'm4', courseId: 'c2', standard: 'S3: Student & Stakeholder Focus', method: 'Case Analysis', target: 80, actual: 86, term: 'Fall 2026' },
+    { id: 'm5', courseId: 'c2', standard: 'S6: Educational & Business Process Mgmt', method: 'Group Project', target: 75, actual: 81, term: 'Fall 2026' },
+    { id: 'm6', courseId: 'c3', standard: 'S4: Measurement & Analysis', method: 'Quiz Battery', target: 70, actual: 65, term: 'Fall 2026' },
+    { id: 'm7', courseId: 'c3', standard: 'S6: Educational & Business Process Mgmt', method: 'Final Exam', target: 75, actual: 79, term: 'Fall 2026' },
+  ],
+  assignments: [
+    { id: 'a1', classId: 'cl1', title: 'Marketing Plan Draft', type: 'Project', dueDate: '2026-05-22', maxScore: 100, weight: 20, instructions: 'Draft a marketing plan for a Vietnamese SME of your choice. 8-10 pages.' },
+    { id: 'a2', classId: 'cl1', title: 'Mid-term Exam', type: 'Exam', dueDate: '2026-05-12', maxScore: 100, weight: 30, instructions: 'In-class, 90 minutes, closed-book.' },
+    { id: 'a3', classId: 'cl1', title: 'Brand Audit Presentation', type: 'Presentation', dueDate: '2026-06-05', maxScore: 100, weight: 15, instructions: '10-min team pitch + Q&A.' },
+    { id: 'a4', classId: 'cl2', title: 'Marketing Plan Draft', type: 'Project', dueDate: '2026-05-26', maxScore: 100, weight: 20, instructions: 'Same brief as Section A — see syllabus.' },
+    { id: 'a5', classId: 'cl2', title: 'Mid-term Exam', type: 'Exam', dueDate: '2026-05-15', maxScore: 100, weight: 30, instructions: 'In-class, 90 minutes, closed-book.' },
+    { id: 'a6', classId: 'cl3', title: 'Consumer Insight Report', type: 'Project', dueDate: '2026-05-25', maxScore: 100, weight: 25, instructions: 'Ethnographic study + report.' },
+    { id: 'a7', classId: 'cl3', title: 'Quiz 3', type: 'Quiz', dueDate: '2026-05-10', maxScore: 50, weight: 10, instructions: 'Online quiz on Chapters 5-6.' },
+    { id: 'a8', classId: 'cl4', title: 'Problem Set 3', type: 'Homework', dueDate: '2026-05-20', maxScore: 50, weight: 10, instructions: 'Problems 3.1-3.12, show all work.' },
+    { id: 'a9', classId: 'cl4', title: 'Mid-term Exam', type: 'Exam', dueDate: '2026-05-08', maxScore: 100, weight: 30, instructions: 'Calculator allowed.' },
+  ],
+  submissions: [
+    // cl1 students
+    { id: 'sub1', studentId: 's1', assignmentId: 'a1', score: null, submitted: false },
+    { id: 'sub2', studentId: 's1', assignmentId: 'a2', score: 86, submitted: true },
+    { id: 'sub3', studentId: 's1', assignmentId: 'a3', score: null, submitted: false },
+    { id: 'sub4', studentId: 's2', assignmentId: 'a1', score: null, submitted: false },
+    { id: 'sub5', studentId: 's2', assignmentId: 'a2', score: 74, submitted: true },
+    { id: 'sub6', studentId: 's2', assignmentId: 'a3', score: null, submitted: false },
+    // cl2
+    { id: 'sub7', studentId: 's3', assignmentId: 'a4', score: null, submitted: false },
+    { id: 'sub8', studentId: 's3', assignmentId: 'a5', score: 92, submitted: true },
+    { id: 'sub9', studentId: 's4', assignmentId: 'a4', score: null, submitted: false },
+    { id: 'sub10', studentId: 's4', assignmentId: 'a5', score: 68, submitted: true },
+    // cl3
+    { id: 'sub11', studentId: 's5', assignmentId: 'a6', score: null, submitted: false },
+    { id: 'sub12', studentId: 's5', assignmentId: 'a7', score: 41, submitted: true },
+    // cl4
+    { id: 'sub13', studentId: 's6', assignmentId: 'a8', score: null, submitted: false },
+    { id: 'sub14', studentId: 's6', assignmentId: 'a9', score: 62, submitted: true },
+    { id: 'sub15', studentId: 's7', assignmentId: 'a8', score: 48, submitted: true },
+    { id: 'sub16', studentId: 's7', assignmentId: 'a9', score: 94, submitted: true },
+  ],
+});
+
+const loadDB = () => {
+  try {
+    const raw = localStorage.getItem(DB_KEY);
+    if (!raw) {
+      const s = seed();
+      localStorage.setItem(DB_KEY, JSON.stringify(s));
+      return s;
+    }
+    return JSON.parse(raw);
+  } catch { return seed(); }
+};
+const saveDB = (db) => localStorage.setItem(DB_KEY, JSON.stringify(db));
+const uid = () => Math.random().toString(36).slice(2, 9);
+
+// ============================================================
+//  ICON helper (lucide)
+// ============================================================
+const Icon = ({ name, size = 18, className = '' }) => {
+  const ref = useRef();
+  useEffect(() => {
+    if (ref.current && window.lucide) {
+      ref.current.innerHTML = '';
+      const el = document.createElement('i');
+      el.setAttribute('data-lucide', name);
+      el.style.width = size + 'px';
+      el.style.height = size + 'px';
+      ref.current.appendChild(el);
+      window.lucide.createIcons({ attrs: { width: size, height: size, 'stroke-width': 1.8 } });
+    }
+  }, [name, size]);
+  return <span ref={ref} className={`inline-flex items-center justify-center ${className}`} style={{ width: size, height: size }} />;
+};
+
+// ============================================================
+//  PRIMITIVES
+// ============================================================
+const StatCard = ({ icon, label, value, sub, color = 'violet' }) => (
+  <div className="glass stat-glow rounded-2xl p-5 fade-in">
+    <div className="flex items-start justify-between">
+      <div>
+        <div className="text-xs uppercase tracking-wider text-[var(--text-3)] font-semibold">{label}</div>
+        <div className="mt-2 text-3xl font-bold gradient-text">{value}</div>
+        {sub && <div className="text-xs text-[var(--text-2)] mt-1">{sub}</div>}
+      </div>
+      <div className={`w-11 h-11 rounded-xl flex items-center justify-center bg-${color}-500/15 text-${color}-300`}>
+        <Icon name={icon} size={22} />
+      </div>
+    </div>
+  </div>
+);
+
+const Modal = ({ open, onClose, title, children, wide = false }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4">
+      <div className={`glass-strong rounded-2xl shadow-2xl w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} fade-in`}>
+        <div className="flex items-center justify-between p-5 border-b border-[var(--border)]">
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <button onClick={onClose} className="text-[var(--text-2)] hover:text-white">
+            <Icon name="x" size={20} />
+          </button>
+        </div>
+        <div className="p-5 max-h-[70vh] overflow-y-auto scrollbar-thin">{children}</div>
+      </div>
+    </div>
+  );
+};
+
+const Field = ({ label, children }) => (
+  <label className="block mb-3">
+    <span className="block text-xs text-[var(--text-2)] uppercase tracking-wider mb-1.5 font-semibold">{label}</span>
+    {children}
+  </label>
+);
+
+const inputClass = "w-full px-3 py-2.5 rounded-lg text-sm";
+const Btn = ({ children, variant = 'primary', onClick, type = 'button', icon }) => {
+  const base = "inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition";
+  const styles = {
+    primary: "btn-primary text-white",
+    ghost: "bg-white/5 hover:bg-white/10 text-[var(--text-1)]",
+    danger: "bg-red-500/15 hover:bg-red-500/25 text-red-300",
+  };
+  return (
+    <button type={type} onClick={onClick} className={`${base} ${styles[variant]}`}>
+      {icon && <Icon name={icon} size={16} />}
+      {children}
+    </button>
+  );
+};
+
+// ============================================================
+//  SIDEBAR
+// ============================================================
+const TEACHER_NAV = [
+  { key: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+  { key: 'courses', label: 'Courses', icon: 'book-open' },
+  { key: 'classes', label: 'Classes', icon: 'users' },
+  { key: 'students', label: 'Students', icon: 'graduation-cap' },
+  { key: 'assignments', label: 'Assignments', icon: 'clipboard-list' },
+  { key: 'matrix', label: 'ACBSP Matrix', icon: 'grid-3x3' },
+  { key: 'settings', label: 'Settings', icon: 'settings' },
+];
+const STUDENT_NAV = [
+  { key: 's_home', label: 'My Home', icon: 'home' },
+  { key: 's_schedule', label: 'My Schedule', icon: 'calendar' },
+  { key: 's_grades', label: 'My Grades', icon: 'award' },
+  { key: 's_assignments', label: 'My Assignments', icon: 'clipboard-list' },
+];
+
+const Sidebar = ({ page, setPage, role, setRole, db, currentStudent, setCurrentStudent }) => {
+  const nav = role === 'teacher' ? TEACHER_NAV : STUDENT_NAV;
+  const profile = role === 'teacher'
+    ? { name: db.user.name, sub: db.user.role }
+    : (() => {
+        const s = db.students.find(x => x.id === currentStudent);
+        return s ? { name: s.name, sub: s.studentId } : { name: 'Pick a student', sub: '—' };
+      })();
+  return (
+    <aside className="w-64 shrink-0 h-screen sticky top-0 glass flex flex-col border-r border-[var(--border)]">
+      <div className="p-5 border-b border-[var(--border)]">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
+            <Icon name="graduation-cap" size={20} className="text-white" />
+          </div>
+          <div>
+            <div className="font-bold text-base leading-tight">Teaching Hub</div>
+            <div className="text-[10px] text-[var(--text-3)] uppercase tracking-widest">Denny edition</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Role switcher */}
+      <div className="px-3 pt-3">
+        <div className="flex p-1 bg-white/5 rounded-lg">
+          <button onClick={()=>{setRole('teacher'); setPage('dashboard');}}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition ${role==='teacher' ? 'bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow' : 'text-[var(--text-2)] hover:text-white'}`}>
+            <Icon name="user-cog" size={14} /> Teacher
+          </button>
+          <button onClick={()=>{setRole('student'); setPage('s_home');}}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition ${role==='student' ? 'bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow' : 'text-[var(--text-2)] hover:text-white'}`}>
+            <Icon name="user" size={14} /> Student
+          </button>
+        </div>
+        {role === 'student' && (
+          <select value={currentStudent || ''} onChange={e=>setCurrentStudent(e.target.value)}
+            className="w-full mt-2 px-2 py-2 rounded-md text-xs">
+            <option value="">— Pick a student —</option>
+            {db.students.map(s => <option key={s.id} value={s.id}>{s.studentId} · {s.name}</option>)}
+          </select>
+        )}
+      </div>
+
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto scrollbar-thin mt-2">
+        {nav.map(item => (
+          <button key={item.key} onClick={() => setPage(item.key)}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition ${
+              page === item.key
+                ? 'bg-gradient-to-r from-violet-500/20 to-indigo-500/10 text-white border border-violet-400/20'
+                : 'text-[var(--text-2)] hover:bg-white/5 hover:text-white'
+            }`}>
+            <Icon name={item.icon} size={18} />
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
+      <div className="p-3 border-t border-[var(--border)]">
+        <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-fuchsia-500 to-violet-600 flex items-center justify-center font-semibold text-sm">
+            {profile.name.split(' ').map(s => s[0]).slice(0,2).join('')}
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-medium truncate">{profile.name}</div>
+            <div className="text-[11px] text-[var(--text-3)] truncate">{profile.sub}</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+};
+
+// ============================================================
+//  DASHBOARD
+// ============================================================
+const Dashboard = ({ db, setPage }) => {
+  const totalEnrolled = db.classes.reduce((a, c) => a + c.enrolled, 0);
+  const avgGpa = (db.students.reduce((a, s) => a + s.gpa, 0) / db.students.length).toFixed(2);
+  const matrixOnTarget = db.matrix.filter(m => m.actual >= m.target).length;
+  const matrixHealth = Math.round((matrixOnTarget / db.matrix.length) * 100);
+
+  return (
+    <div className="space-y-6 fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Welcome back, {db.user.name.split(' ')[0]} 👋</h1>
+          <p className="text-[var(--text-2)] mt-1">Here's what's happening across your teaching portfolio.</p>
+        </div>
+        <div className="flex gap-2">
+          <Btn variant="ghost" icon="download">Export</Btn>
+          <Btn icon="plus" onClick={() => setPage('courses')}>New Course</Btn>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon="book-open" label="Courses" value={db.courses.filter(c => c.status==='Active').length} sub={`${db.courses.length} total`} />
+        <StatCard icon="users" label="Classes" value={db.classes.length} sub="this semester" />
+        <StatCard icon="graduation-cap" label="Enrolled Students" value={totalEnrolled} sub={`avg GPA ${avgGpa}`} />
+        <StatCard icon="target" label="ACBSP On Target" value={`${matrixHealth}%`} sub={`${matrixOnTarget}/${db.matrix.length} criteria`} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="glass rounded-2xl p-5 lg:col-span-2">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">Class Capacity</h3>
+            <span className="text-xs text-[var(--text-3)]">enrolled / capacity</span>
+          </div>
+          <div className="space-y-3">
+            {db.classes.map(cl => {
+              const c = db.courses.find(x => x.id === cl.courseId);
+              const pct = Math.round((cl.enrolled / cl.capacity) * 100);
+              return (
+                <div key={cl.id}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span><span className="text-[var(--text-1)] font-medium">{c?.code}</span> · Section {cl.section}</span>
+                    <span className="text-[var(--text-2)]">{cl.enrolled} / {cl.capacity}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                    <div className="h-full rounded-full"
+                      style={{
+                        width: pct + '%',
+                        background: pct > 90 ? 'linear-gradient(90deg, #f59e0b, #ef4444)' : 'linear-gradient(90deg, #8b5cf6, #6366f1)'
+                      }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="glass rounded-2xl p-5">
+          <h3 className="font-semibold mb-4">Recent Activity</h3>
+          <ul className="space-y-3 text-sm">
+            {[
+              { icon: 'check-circle', color: 'text-emerald-400', text: 'ACBSP review submitted', time: '2h ago' },
+              { icon: 'user-plus', color: 'text-violet-400', text: 'New student enrolled in MKT301-B', time: '5h ago' },
+              { icon: 'file-text', color: 'text-indigo-400', text: 'Mid-term grades published', time: 'yesterday' },
+              { icon: 'alert-circle', color: 'text-amber-400', text: 'BUS210 attendance below target', time: '2d ago' },
+            ].map((a, i) => (
+              <li key={i} className="flex items-start gap-3">
+                <span className={a.color}><Icon name={a.icon} size={16} /></span>
+                <div className="flex-1">
+                  <div>{a.text}</div>
+                  <div className="text-[11px] text-[var(--text-3)]">{a.time}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+//  COURSES
+// ============================================================
+const Courses = ({ db, setDB }) => {
+  const [editing, setEditing] = useState(null);
+  const [search, setSearch] = useState('');
+  const filtered = db.courses.filter(c =>
+    !search || (c.code + c.name + c.dept).toLowerCase().includes(search.toLowerCase())
+  );
+
+  const save = (c) => {
+    const next = { ...db };
+    if (c.id) {
+      next.courses = next.courses.map(x => x.id === c.id ? c : x);
+    } else {
+      next.courses = [...next.courses, { ...c, id: uid() }];
+    }
+    setDB(next); setEditing(null);
+  };
+
+  const del = (id) => {
+    if (!confirm('Delete this course? Related classes will be kept but orphaned.')) return;
+    setDB({ ...db, courses: db.courses.filter(c => c.id !== id) });
+  };
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Courses</h1>
+          <p className="text-[var(--text-2)] text-sm mt-1">{db.courses.length} total · {db.courses.filter(c=>c.status==='Active').length} active</p>
+        </div>
+        <Btn icon="plus" onClick={() => setEditing({ code:'', name:'', credits: 3, dept:'', term:'Fall 2026', status:'Active' })}>New Course</Btn>
+      </div>
+      <div className="glass rounded-2xl">
+        <div className="p-4 border-b border-[var(--border)] flex items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-3)]" />
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by code, name, department…" className={inputClass + ' pl-9'} />
+          </div>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="text-xs uppercase tracking-wider text-[var(--text-3)]">
+            <tr>
+              <th className="text-left px-5 py-3 font-semibold">Code</th>
+              <th className="text-left px-5 py-3 font-semibold">Name</th>
+              <th className="text-left px-5 py-3 font-semibold">Department</th>
+              <th className="text-left px-5 py-3 font-semibold">Term</th>
+              <th className="text-center px-5 py-3 font-semibold">Credits</th>
+              <th className="text-center px-5 py-3 font-semibold">Status</th>
+              <th className="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(c => (
+              <tr key={c.id} className="row-hover border-t border-[var(--border-2)]">
+                <td className="px-5 py-3 font-semibold gradient-text">{c.code}</td>
+                <td className="px-5 py-3">{c.name}</td>
+                <td className="px-5 py-3 text-[var(--text-2)]">{c.dept}</td>
+                <td className="px-5 py-3 text-[var(--text-2)]">{c.term}</td>
+                <td className="px-5 py-3 text-center">{c.credits}</td>
+                <td className="px-5 py-3 text-center">
+                  <span className={'badge ' + (c.status === 'Active' ? 'heat-1' : 'heat-3')}>{c.status}</span>
+                </td>
+                <td className="px-5 py-3 text-right">
+                  <button onClick={()=>setEditing(c)} className="text-[var(--text-2)] hover:text-white p-1 mr-1"><Icon name="pencil" size={15} /></button>
+                  <button onClick={()=>del(c.id)} className="text-[var(--text-2)] hover:text-red-400 p-1"><Icon name="trash-2" size={15} /></button>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr><td colSpan="7" className="text-center py-10 text-[var(--text-3)]">No courses found.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Modal open={!!editing} onClose={()=>setEditing(null)} title={editing?.id ? 'Edit course' : 'New course'}>
+        {editing && (
+          <form onSubmit={(e)=>{ e.preventDefault(); save(editing); }}>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Code"><input className={inputClass} value={editing.code} onChange={e=>setEditing({...editing, code:e.target.value})} required /></Field>
+              <Field label="Credits"><input type="number" min="1" max="6" className={inputClass} value={editing.credits} onChange={e=>setEditing({...editing, credits:+e.target.value})} required /></Field>
+            </div>
+            <Field label="Course name"><input className={inputClass} value={editing.name} onChange={e=>setEditing({...editing, name:e.target.value})} required /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Department"><input className={inputClass} value={editing.dept} onChange={e=>setEditing({...editing, dept:e.target.value})} required /></Field>
+              <Field label="Term"><input className={inputClass} value={editing.term} onChange={e=>setEditing({...editing, term:e.target.value})} required /></Field>
+            </div>
+            <Field label="Status">
+              <select className={inputClass} value={editing.status} onChange={e=>setEditing({...editing, status:e.target.value})}>
+                <option>Active</option><option>Archived</option><option>Draft</option>
+              </select>
+            </Field>
+            <div className="flex justify-end gap-2 mt-4">
+              <Btn variant="ghost" onClick={()=>setEditing(null)}>Cancel</Btn>
+              <Btn type="submit" icon="save">Save course</Btn>
+            </div>
+          </form>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+// ============================================================
+//  CLASSES
+// ============================================================
+const Classes = ({ db, setDB }) => {
+  const [editing, setEditing] = useState(null);
+  const courseById = (id) => db.courses.find(c => c.id === id);
+
+  const save = (cl) => {
+    const next = { ...db };
+    if (cl.id) next.classes = next.classes.map(x => x.id === cl.id ? cl : x);
+    else next.classes = [...next.classes, { ...cl, id: uid() }];
+    setDB(next); setEditing(null);
+  };
+
+  const del = (id) => {
+    if (!confirm('Delete this class?')) return;
+    setDB({ ...db, classes: db.classes.filter(c => c.id !== id) });
+  };
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Classes</h1>
+          <p className="text-[var(--text-2)] text-sm mt-1">{db.classes.length} sections running</p>
+        </div>
+        <Btn icon="plus" onClick={()=>setEditing({ courseId: db.courses[0]?.id, section:'A', schedule:'', room:'', enrolled:0, capacity:40 })}>New Class</Btn>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {db.classes.map(cl => {
+          const c = courseById(cl.courseId);
+          const pct = Math.round((cl.enrolled / cl.capacity) * 100);
+          return (
+            <div key={cl.id} className="glass rounded-2xl p-5 fade-in">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-xs text-[var(--text-3)] uppercase tracking-wider font-semibold">{c?.dept || 'Unassigned'}</div>
+                  <h3 className="font-semibold mt-1 text-lg">{c?.code} · Section {cl.section}</h3>
+                  <p className="text-[var(--text-2)] text-sm">{c?.name}</p>
+                </div>
+                <div className="flex gap-1">
+                  <button onClick={()=>setEditing(cl)} className="text-[var(--text-2)] hover:text-white p-1"><Icon name="pencil" size={15} /></button>
+                  <button onClick={()=>del(cl.id)} className="text-[var(--text-2)] hover:text-red-400 p-1"><Icon name="trash-2" size={15} /></button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-4 text-sm">
+                <div className="flex items-center gap-2 text-[var(--text-2)]"><Icon name="calendar" size={14} /><span>{cl.schedule}</span></div>
+                <div className="flex items-center gap-2 text-[var(--text-2)]"><Icon name="map-pin" size={14} /><span>Room {cl.room}</span></div>
+              </div>
+              <div className="mt-4">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-[var(--text-2)]">Enrollment</span>
+                  <span className="font-medium">{cl.enrolled}/{cl.capacity} ({pct}%)</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: pct + '%', background: pct > 90 ? 'linear-gradient(90deg,#f59e0b,#ef4444)' : 'linear-gradient(90deg,#8b5cf6,#6366f1)' }} />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <Modal open={!!editing} onClose={()=>setEditing(null)} title={editing?.id ? 'Edit class' : 'New class'}>
+        {editing && (
+          <form onSubmit={e=>{ e.preventDefault(); save(editing); }}>
+            <Field label="Course">
+              <select className={inputClass} value={editing.courseId} onChange={e=>setEditing({...editing, courseId:e.target.value})}>
+                {db.courses.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+              </select>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Section"><input className={inputClass} value={editing.section} onChange={e=>setEditing({...editing, section:e.target.value})} required /></Field>
+              <Field label="Room"><input className={inputClass} value={editing.room} onChange={e=>setEditing({...editing, room:e.target.value})} required /></Field>
+            </div>
+            <Field label="Schedule"><input className={inputClass} value={editing.schedule} onChange={e=>setEditing({...editing, schedule:e.target.value})} placeholder="e.g. Mon/Wed 9:00-10:30" required /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Enrolled"><input type="number" min="0" className={inputClass} value={editing.enrolled} onChange={e=>setEditing({...editing, enrolled:+e.target.value})} /></Field>
+              <Field label="Capacity"><input type="number" min="1" className={inputClass} value={editing.capacity} onChange={e=>setEditing({...editing, capacity:+e.target.value})} /></Field>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Btn variant="ghost" onClick={()=>setEditing(null)}>Cancel</Btn>
+              <Btn type="submit" icon="save">Save class</Btn>
+            </div>
+          </form>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+// ============================================================
+//  STUDENTS
+// ============================================================
+const Students = ({ db, setDB }) => {
+  const [editing, setEditing] = useState(null);
+  const [search, setSearch] = useState('');
+  const [filterClass, setFilterClass] = useState('all');
+
+  const classLabel = (id) => {
+    const cl = db.classes.find(c => c.id === id);
+    if (!cl) return '—';
+    const c = db.courses.find(x => x.id === cl.courseId);
+    return `${c?.code || '?'} · ${cl.section}`;
+  };
+
+  const filtered = db.students.filter(s =>
+    (!search || (s.name + s.studentId + s.email).toLowerCase().includes(search.toLowerCase())) &&
+    (filterClass === 'all' || s.classId === filterClass)
+  );
+
+  const save = (s) => {
+    const next = { ...db };
+    if (s.id) next.students = next.students.map(x => x.id === s.id ? s : x);
+    else next.students = [...next.students, { ...s, id: uid() }];
+    setDB(next); setEditing(null);
+  };
+  const del = (id) => { if (confirm('Delete this student?')) setDB({...db, students: db.students.filter(s => s.id !== id)}); };
+
+  const gpaColor = (g) => g >= 3.5 ? 'heat-1' : g >= 3.0 ? 'heat-2' : g >= 2.5 ? 'heat-3' : 'heat-4';
+  const attColor = (a) => a >= 90 ? 'heat-1' : a >= 80 ? 'heat-2' : a >= 70 ? 'heat-3' : 'heat-4';
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Students</h1>
+          <p className="text-[var(--text-2)] text-sm mt-1">{db.students.length} enrolled across {db.classes.length} classes</p>
+        </div>
+        <Btn icon="user-plus" onClick={()=>setEditing({ studentId:'', name:'', email:'', classId: db.classes[0]?.id, gpa: 3.0, attendance: 90 })}>Add Student</Btn>
+      </div>
+      <div className="glass rounded-2xl">
+        <div className="p-4 border-b border-[var(--border)] flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-3)]" />
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name, ID, email…" className={inputClass + ' pl-9'} />
+          </div>
+          <select value={filterClass} onChange={e=>setFilterClass(e.target.value)} className={inputClass + ' w-auto'}>
+            <option value="all">All classes</option>
+            {db.classes.map(cl => <option key={cl.id} value={cl.id}>{classLabel(cl.id)}</option>)}
+          </select>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="text-xs uppercase tracking-wider text-[var(--text-3)]">
+            <tr>
+              <th className="text-left px-5 py-3 font-semibold">Student ID</th>
+              <th className="text-left px-5 py-3 font-semibold">Name</th>
+              <th className="text-left px-5 py-3 font-semibold">Email</th>
+              <th className="text-left px-5 py-3 font-semibold">Class</th>
+              <th className="text-center px-5 py-3 font-semibold">GPA</th>
+              <th className="text-center px-5 py-3 font-semibold">Attendance</th>
+              <th className="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(s => (
+              <tr key={s.id} className="row-hover border-t border-[var(--border-2)]">
+                <td className="px-5 py-3 font-mono text-xs text-[var(--text-2)]">{s.studentId}</td>
+                <td className="px-5 py-3 font-medium">{s.name}</td>
+                <td className="px-5 py-3 text-[var(--text-2)]">{s.email}</td>
+                <td className="px-5 py-3"><span className="badge heat-2">{classLabel(s.classId)}</span></td>
+                <td className="px-5 py-3 text-center"><span className={'badge ' + gpaColor(s.gpa)}>{s.gpa.toFixed(2)}</span></td>
+                <td className="px-5 py-3 text-center"><span className={'badge ' + attColor(s.attendance)}>{s.attendance}%</span></td>
+                <td className="px-5 py-3 text-right">
+                  <button onClick={()=>setEditing(s)} className="text-[var(--text-2)] hover:text-white p-1 mr-1"><Icon name="pencil" size={15} /></button>
+                  <button onClick={()=>del(s.id)} className="text-[var(--text-2)] hover:text-red-400 p-1"><Icon name="trash-2" size={15} /></button>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && <tr><td colSpan="7" className="text-center py-10 text-[var(--text-3)]">No students match these filters.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <Modal open={!!editing} onClose={()=>setEditing(null)} title={editing?.id ? 'Edit student' : 'Add student'}>
+        {editing && (
+          <form onSubmit={e=>{ e.preventDefault(); save(editing); }}>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Student ID"><input className={inputClass} value={editing.studentId} onChange={e=>setEditing({...editing, studentId:e.target.value})} required /></Field>
+              <Field label="Class">
+                <select className={inputClass} value={editing.classId} onChange={e=>setEditing({...editing, classId:e.target.value})}>
+                  {db.classes.map(cl => <option key={cl.id} value={cl.id}>{classLabel(cl.id)}</option>)}
+                </select>
+              </Field>
+            </div>
+            <Field label="Full name"><input className={inputClass} value={editing.name} onChange={e=>setEditing({...editing, name:e.target.value})} required /></Field>
+            <Field label="Email"><input type="email" className={inputClass} value={editing.email} onChange={e=>setEditing({...editing, email:e.target.value})} required /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="GPA"><input type="number" step="0.01" min="0" max="4" className={inputClass} value={editing.gpa} onChange={e=>setEditing({...editing, gpa:+e.target.value})} /></Field>
+              <Field label="Attendance %"><input type="number" min="0" max="100" className={inputClass} value={editing.attendance} onChange={e=>setEditing({...editing, attendance:+e.target.value})} /></Field>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Btn variant="ghost" onClick={()=>setEditing(null)}>Cancel</Btn>
+              <Btn type="submit" icon="save">Save student</Btn>
+            </div>
+          </form>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+// ============================================================
+//  ACBSP MATRIX
+// ============================================================
+const STANDARDS = [
+  'S1: Leadership',
+  'S2: Strategic Planning',
+  'S3: Student & Stakeholder Focus',
+  'S4: Measurement & Analysis',
+  'S5: Faculty & Staff',
+  'S6: Educational & Business Process Mgmt',
+];
+
+const Matrix = ({ db, setDB }) => {
+  const [editing, setEditing] = useState(null);
+  const onTargetPct = (m) => Math.round((m.actual / m.target) * 100);
+
+  const save = (m) => {
+    const next = { ...db };
+    if (m.id) next.matrix = next.matrix.map(x => x.id === m.id ? m : x);
+    else next.matrix = [...next.matrix, { ...m, id: uid() }];
+    setDB(next); setEditing(null);
+  };
+  const del = (id) => { if (confirm('Delete this assessment?')) setDB({...db, matrix: db.matrix.filter(m => m.id !== id)}); };
+
+  // Heatmap data: standard × course
+  const heatmap = useMemo(() => {
+    const map = {};
+    STANDARDS.forEach(s => { map[s] = {}; db.courses.forEach(c => { map[s][c.id] = null; }); });
+    db.matrix.forEach(m => {
+      if (!map[m.standard]) map[m.standard] = {};
+      const existing = map[m.standard][m.courseId];
+      const pct = onTargetPct(m);
+      map[m.standard][m.courseId] = existing ? Math.round((existing + pct) / 2) : pct;
+    });
+    return map;
+  }, [db]);
+
+  const cellColor = (v) => {
+    if (v === null) return 'bg-white/[0.02] text-[var(--text-3)]';
+    if (v >= 105) return 'bg-emerald-500/25 text-emerald-200';
+    if (v >= 100) return 'bg-emerald-500/15 text-emerald-300';
+    if (v >= 90) return 'bg-amber-500/20 text-amber-200';
+    return 'bg-red-500/20 text-red-200';
+  };
+
+  return (
+    <div className="space-y-6 fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">ACBSP Assessment Matrix</h1>
+          <p className="text-[var(--text-2)] text-sm mt-1">Track learning outcomes across standards × courses</p>
+        </div>
+        <Btn icon="plus" onClick={()=>setEditing({ courseId: db.courses[0]?.id, standard: STANDARDS[0], method:'', target: 80, actual: 0, term:'Fall 2026' })}>New Assessment</Btn>
+      </div>
+
+      {/* Heatmap */}
+      <div className="glass rounded-2xl p-5 overflow-x-auto scrollbar-thin">
+        <h3 className="font-semibold mb-4">Standards × Courses heatmap <span className="text-xs font-normal text-[var(--text-3)] ml-2">(actual ÷ target %)</span></h3>
+        <table className="w-full text-sm border-separate border-spacing-1">
+          <thead>
+            <tr>
+              <th className="text-left text-xs uppercase tracking-wider text-[var(--text-3)] font-semibold py-2 pr-3 min-w-[260px]">Standard</th>
+              {db.courses.map(c => (
+                <th key={c.id} className="text-xs uppercase tracking-wider text-[var(--text-3)] font-semibold py-2 px-2 text-center">{c.code}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {STANDARDS.map(s => (
+              <tr key={s}>
+                <td className="py-2 pr-3 text-[var(--text-2)] text-sm">{s}</td>
+                {db.courses.map(c => {
+                  const v = heatmap[s]?.[c.id];
+                  return (
+                    <td key={c.id} className={`text-center font-semibold py-3 rounded-lg ${cellColor(v)}`}>
+                      {v === null ? '—' : v + '%'}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="flex items-center gap-4 mt-4 text-xs text-[var(--text-2)]">
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500/25" /> Exceeds (≥105%)</div>
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500/15" /> On target (100–104%)</div>
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-amber-500/20" /> Near (90–99%)</div>
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-red-500/20" /> Below (&lt;90%)</div>
+        </div>
+      </div>
+
+      {/* Detail table */}
+      <div className="glass rounded-2xl">
+        <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+          <h3 className="font-semibold">Assessment records</h3>
+          <span className="text-xs text-[var(--text-3)]">{db.matrix.length} entries</span>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="text-xs uppercase tracking-wider text-[var(--text-3)]">
+            <tr>
+              <th className="text-left px-5 py-3 font-semibold">Course</th>
+              <th className="text-left px-5 py-3 font-semibold">Standard</th>
+              <th className="text-left px-5 py-3 font-semibold">Method</th>
+              <th className="text-center px-5 py-3 font-semibold">Target</th>
+              <th className="text-center px-5 py-3 font-semibold">Actual</th>
+              <th className="text-center px-5 py-3 font-semibold">Outcome</th>
+              <th className="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {db.matrix.map(m => {
+              const c = db.courses.find(x => x.id === m.courseId);
+              const pct = onTargetPct(m);
+              const on = pct >= 100;
+              return (
+                <tr key={m.id} className="row-hover border-t border-[var(--border-2)]">
+                  <td className="px-5 py-3"><span className="gradient-text font-semibold">{c?.code}</span></td>
+                  <td className="px-5 py-3 text-[var(--text-2)]">{m.standard}</td>
+                  <td className="px-5 py-3">{m.method}</td>
+                  <td className="px-5 py-3 text-center">{m.target}%</td>
+                  <td className="px-5 py-3 text-center">{m.actual}%</td>
+                  <td className="px-5 py-3 text-center">
+                    <span className={'badge ' + (on ? 'heat-1' : 'heat-4')}>{on ? 'Met' : 'Below'} ({pct}%)</span>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button onClick={()=>setEditing(m)} className="text-[var(--text-2)] hover:text-white p-1 mr-1"><Icon name="pencil" size={15} /></button>
+                    <button onClick={()=>del(m.id)} className="text-[var(--text-2)] hover:text-red-400 p-1"><Icon name="trash-2" size={15} /></button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <Modal open={!!editing} onClose={()=>setEditing(null)} title={editing?.id ? 'Edit assessment' : 'New assessment'}>
+        {editing && (
+          <form onSubmit={e=>{ e.preventDefault(); save(editing); }}>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Course">
+                <select className={inputClass} value={editing.courseId} onChange={e=>setEditing({...editing, courseId:e.target.value})}>
+                  {db.courses.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Term"><input className={inputClass} value={editing.term} onChange={e=>setEditing({...editing, term:e.target.value})} /></Field>
+            </div>
+            <Field label="ACBSP Standard">
+              <select className={inputClass} value={editing.standard} onChange={e=>setEditing({...editing, standard:e.target.value})}>
+                {STANDARDS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Assessment method"><input className={inputClass} value={editing.method} onChange={e=>setEditing({...editing, method:e.target.value})} placeholder="e.g. Capstone Project, Final Exam…" required /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Target %"><input type="number" min="0" max="100" className={inputClass} value={editing.target} onChange={e=>setEditing({...editing, target:+e.target.value})} required /></Field>
+              <Field label="Actual %"><input type="number" min="0" max="100" className={inputClass} value={editing.actual} onChange={e=>setEditing({...editing, actual:+e.target.value})} required /></Field>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Btn variant="ghost" onClick={()=>setEditing(null)}>Cancel</Btn>
+              <Btn type="submit" icon="save">Save assessment</Btn>
+            </div>
+          </form>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+// ============================================================
+//  SETTINGS
+// ============================================================
+const Settings = ({ db, setDB }) => {
+  const [user, setUser] = useState(db.user);
+  const reset = () => {
+    if (!confirm('Reset all data to demo seed? This cannot be undone.')) return;
+    localStorage.removeItem(DB_KEY);
+    setDB(loadDB());
+    setUser(loadDB().user);
+  };
+  const exportJson = () => {
+    const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'teaching-hub-export.json'; a.click();
+    URL.revokeObjectURL(url);
+  };
+  const importJson = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fr = new FileReader();
+    fr.onload = () => {
+      try {
+        const next = JSON.parse(fr.result);
+        setDB(next);
+        alert('Import successful.');
+      } catch { alert('Invalid file.'); }
+    };
+    fr.readAsText(file);
+  };
+  const saveUser = () => { setDB({ ...db, user }); alert('Profile saved.'); };
+
+  return (
+    <div className="space-y-4 max-w-3xl fade-in">
+      <h1 className="text-2xl font-bold">Settings</h1>
+
+      <div className="glass rounded-2xl p-5">
+        <h3 className="font-semibold mb-4">Profile</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Name"><input className={inputClass} value={user.name} onChange={e=>setUser({...user, name:e.target.value})} /></Field>
+          <Field label="Role"><input className={inputClass} value={user.role} onChange={e=>setUser({...user, role:e.target.value})} /></Field>
+        </div>
+        <Field label="Email"><input type="email" className={inputClass} value={user.email} onChange={e=>setUser({...user, email:e.target.value})} /></Field>
+        <div className="flex justify-end">
+          <Btn icon="save" onClick={saveUser}>Save profile</Btn>
+        </div>
+      </div>
+
+      <div className="glass rounded-2xl p-5">
+        <h3 className="font-semibold mb-2">Data</h3>
+        <p className="text-sm text-[var(--text-2)] mb-4">Your data lives in this browser's <code className="text-violet-300">localStorage</code>. Export it as JSON if you want a backup.</p>
+        <div className="flex flex-wrap gap-2">
+          <Btn variant="ghost" icon="download" onClick={exportJson}>Export JSON</Btn>
+          <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-white/5 hover:bg-white/10 cursor-pointer">
+            <Icon name="upload" size={16} /> Import JSON
+            <input type="file" accept="application/json" className="hidden" onChange={importJson} />
+          </label>
+          <Btn variant="danger" icon="trash-2" onClick={reset}>Reset to demo data</Btn>
+        </div>
+      </div>
+
+      <div className="glass rounded-2xl p-5">
+        <h3 className="font-semibold mb-2">About</h3>
+        <p className="text-sm text-[var(--text-2)]">Teaching Hub — vibe-coded clone of <code className="text-violet-300">study.dennynguyen.online</code>. Single HTML, React + Tailwind via CDN, all CRUD persists locally.</p>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+//  ASSIGNMENTS (Teacher side — CRUD + score entry)
+// ============================================================
+const Assignments = ({ db, setDB }) => {
+  const [editing, setEditing] = useState(null);
+  const [scoringFor, setScoringFor] = useState(null); // assignment object
+  const [filterClass, setFilterClass] = useState('all');
+
+  const classLabel = (id) => {
+    const cl = db.classes.find(c => c.id === id);
+    if (!cl) return '—';
+    const c = db.courses.find(x => x.id === cl.courseId);
+    return `${c?.code || '?'} · ${cl.section}`;
+  };
+
+  const save = (a) => {
+    const next = { ...db };
+    if (a.id) next.assignments = next.assignments.map(x => x.id === a.id ? a : x);
+    else next.assignments = [...next.assignments, { ...a, id: uid() }];
+    setDB(next); setEditing(null);
+  };
+  const del = (id) => {
+    if (!confirm('Delete this assignment? All related submissions will be removed.')) return;
+    setDB({ ...db, assignments: db.assignments.filter(a => a.id !== id), submissions: db.submissions.filter(s => s.assignmentId !== id) });
+  };
+
+  const filtered = filterClass === 'all' ? db.assignments : db.assignments.filter(a => a.classId === filterClass);
+  const statusOf = (a) => {
+    const today = new Date('2026-05-17');
+    const due = new Date(a.dueDate);
+    return due < today ? 'past' : 'upcoming';
+  };
+
+  // Scoring modal — load all students in that class
+  const studentsForAssignment = (a) => {
+    if (!a) return [];
+    return db.students.filter(s => s.classId === a.classId);
+  };
+  const subFor = (studentId, assignmentId) => db.submissions.find(s => s.studentId === studentId && s.assignmentId === assignmentId);
+  const updateSub = (studentId, assignmentId, patch) => {
+    const next = { ...db };
+    const existing = next.submissions.find(s => s.studentId === studentId && s.assignmentId === assignmentId);
+    if (existing) {
+      next.submissions = next.submissions.map(s => s === existing ? { ...s, ...patch } : s);
+    } else {
+      next.submissions = [...next.submissions, { id: uid(), studentId, assignmentId, score: null, submitted: false, ...patch }];
+    }
+    setDB(next);
+  };
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Assignments</h1>
+          <p className="text-[var(--text-2)] text-sm mt-1">{db.assignments.length} total · grade & track submissions</p>
+        </div>
+        <Btn icon="plus" onClick={()=>setEditing({ classId: db.classes[0]?.id, title:'', type:'Project', dueDate:'2026-06-01', maxScore:100, weight:10, instructions:'' })}>New Assignment</Btn>
+      </div>
+      <div className="glass rounded-2xl">
+        <div className="p-4 border-b border-[var(--border)] flex items-center gap-3">
+          <select value={filterClass} onChange={e=>setFilterClass(e.target.value)} className={inputClass + ' w-auto'}>
+            <option value="all">All classes</option>
+            {db.classes.map(cl => <option key={cl.id} value={cl.id}>{classLabel(cl.id)}</option>)}
+          </select>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="text-xs uppercase tracking-wider text-[var(--text-3)]">
+            <tr>
+              <th className="text-left px-5 py-3 font-semibold">Class</th>
+              <th className="text-left px-5 py-3 font-semibold">Title</th>
+              <th className="text-left px-5 py-3 font-semibold">Type</th>
+              <th className="text-center px-5 py-3 font-semibold">Due</th>
+              <th className="text-center px-5 py-3 font-semibold">Max / Weight</th>
+              <th className="text-center px-5 py-3 font-semibold">Submitted</th>
+              <th className="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(a => {
+              const subs = db.submissions.filter(s => s.assignmentId === a.id && s.submitted);
+              const totalStudents = db.students.filter(st => st.classId === a.classId).length;
+              return (
+                <tr key={a.id} className="row-hover border-t border-[var(--border-2)]">
+                  <td className="px-5 py-3"><span className="badge heat-2">{classLabel(a.classId)}</span></td>
+                  <td className="px-5 py-3 font-medium">{a.title}</td>
+                  <td className="px-5 py-3 text-[var(--text-2)]">{a.type}</td>
+                  <td className="px-5 py-3 text-center">
+                    <span className={'badge ' + (statusOf(a)==='past' ? 'heat-3' : 'heat-1')}>{a.dueDate}</span>
+                  </td>
+                  <td className="px-5 py-3 text-center text-[var(--text-2)]">{a.maxScore} · {a.weight}%</td>
+                  <td className="px-5 py-3 text-center"><span className="badge heat-2">{subs.length}/{totalStudents}</span></td>
+                  <td className="px-5 py-3 text-right whitespace-nowrap">
+                    <button onClick={()=>setScoringFor(a)} className="text-violet-300 hover:text-white p-1 mr-1" title="Grade"><Icon name="check-square" size={15} /></button>
+                    <button onClick={()=>setEditing(a)} className="text-[var(--text-2)] hover:text-white p-1 mr-1"><Icon name="pencil" size={15} /></button>
+                    <button onClick={()=>del(a.id)} className="text-[var(--text-2)] hover:text-red-400 p-1"><Icon name="trash-2" size={15} /></button>
+                  </td>
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && <tr><td colSpan="7" className="text-center py-10 text-[var(--text-3)]">No assignments.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Edit modal */}
+      <Modal open={!!editing} onClose={()=>setEditing(null)} title={editing?.id ? 'Edit assignment' : 'New assignment'}>
+        {editing && (
+          <form onSubmit={e=>{e.preventDefault(); save(editing);}}>
+            <Field label="Class">
+              <select className={inputClass} value={editing.classId} onChange={e=>setEditing({...editing, classId:e.target.value})}>
+                {db.classes.map(cl => <option key={cl.id} value={cl.id}>{classLabel(cl.id)}</option>)}
+              </select>
+            </Field>
+            <Field label="Title"><input className={inputClass} value={editing.title} onChange={e=>setEditing({...editing, title:e.target.value})} required /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Type">
+                <select className={inputClass} value={editing.type} onChange={e=>setEditing({...editing, type:e.target.value})}>
+                  <option>Project</option><option>Exam</option><option>Quiz</option><option>Homework</option><option>Presentation</option>
+                </select>
+              </Field>
+              <Field label="Due date"><input type="date" className={inputClass} value={editing.dueDate} onChange={e=>setEditing({...editing, dueDate:e.target.value})} required /></Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Max score"><input type="number" min="1" className={inputClass} value={editing.maxScore} onChange={e=>setEditing({...editing, maxScore:+e.target.value})} required /></Field>
+              <Field label="Weight (%)"><input type="number" min="0" max="100" className={inputClass} value={editing.weight} onChange={e=>setEditing({...editing, weight:+e.target.value})} required /></Field>
+            </div>
+            <Field label="Instructions">
+              <textarea rows="3" className={inputClass} value={editing.instructions} onChange={e=>setEditing({...editing, instructions:e.target.value})} />
+            </Field>
+            <div className="flex justify-end gap-2 mt-4">
+              <Btn variant="ghost" onClick={()=>setEditing(null)}>Cancel</Btn>
+              <Btn type="submit" icon="save">Save assignment</Btn>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Scoring modal */}
+      <Modal open={!!scoringFor} onClose={()=>setScoringFor(null)} title={`Grade — ${scoringFor?.title}`} wide>
+        {scoringFor && (
+          <div>
+            <p className="text-sm text-[var(--text-2)] mb-3">{classLabel(scoringFor.classId)} · Max {scoringFor.maxScore} · Due {scoringFor.dueDate}</p>
+            <table className="w-full text-sm">
+              <thead className="text-xs uppercase tracking-wider text-[var(--text-3)]">
+                <tr>
+                  <th className="text-left py-2">Student</th>
+                  <th className="text-center py-2">Submitted</th>
+                  <th className="text-center py-2 w-32">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {studentsForAssignment(scoringFor).map(st => {
+                  const sub = subFor(st.id, scoringFor.id) || { score: null, submitted: false };
+                  return (
+                    <tr key={st.id} className="border-t border-[var(--border-2)]">
+                      <td className="py-2.5"><div className="font-medium">{st.name}</div><div className="text-xs text-[var(--text-3)]">{st.studentId}</div></td>
+                      <td className="text-center">
+                        <input type="checkbox" checked={sub.submitted} onChange={e=>updateSub(st.id, scoringFor.id, { submitted: e.target.checked })} className="w-4 h-4 accent-violet-500" />
+                      </td>
+                      <td className="text-center">
+                        <input type="number" min="0" max={scoringFor.maxScore} value={sub.score ?? ''} placeholder="—"
+                          onChange={e=>updateSub(st.id, scoringFor.id, { score: e.target.value === '' ? null : +e.target.value, submitted: e.target.value !== '' || sub.submitted })}
+                          className="w-20 px-2 py-1.5 rounded text-center text-sm" />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div className="flex justify-end mt-4">
+              <Btn onClick={()=>setScoringFor(null)} icon="check">Done</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+// ============================================================
+//  STUDENT VIEWS
+// ============================================================
+const PickStudent = ({ db, setCurrentStudent }) => (
+  <div className="glass rounded-2xl p-8 max-w-md mx-auto mt-12 text-center fade-in">
+    <div className="w-16 h-16 rounded-full bg-violet-500/15 flex items-center justify-center mx-auto mb-4">
+      <Icon name="user-check" size={28} className="text-violet-300" />
+    </div>
+    <h2 className="text-xl font-bold mb-2">Log in as a student</h2>
+    <p className="text-[var(--text-2)] text-sm mb-5">Pick a student from the demo roster to see their portal view.</p>
+    <select onChange={e=>setCurrentStudent(e.target.value)} className={inputClass}>
+      <option value="">— Pick —</option>
+      {db.students.map(s => <option key={s.id} value={s.id}>{s.studentId} · {s.name}</option>)}
+    </select>
+  </div>
+);
+
+// Helpers for student views
+const studentClass = (db, st) => db.classes.find(c => c.id === st.classId);
+const studentCourse = (db, st) => {
+  const cl = studentClass(db, st);
+  return cl ? db.courses.find(c => c.id === cl.courseId) : null;
+};
+const studentAssignments = (db, st) => db.assignments.filter(a => a.classId === st.classId);
+const studentSub = (db, st, assignmentId) => db.submissions.find(s => s.studentId === st.id && s.assignmentId === assignmentId);
+
+const StudentHome = ({ db, st, setPage }) => {
+  const cl = studentClass(db, st);
+  const c = studentCourse(db, st);
+  const myAssignments = studentAssignments(db, st);
+  const today = new Date('2026-05-17');
+  const upcoming = myAssignments.filter(a => new Date(a.dueDate) >= today).sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+  const graded = myAssignments.map(a => ({ a, sub: studentSub(db, st, a.id) })).filter(x => x.sub?.score != null);
+  const avgPct = graded.length ? Math.round(graded.reduce((acc, x) => acc + (x.sub.score / x.a.maxScore * 100), 0) / graded.length) : null;
+
+  return (
+    <div className="space-y-6 fade-in">
+      <div>
+        <p className="text-[var(--text-2)] text-sm">{c?.code} — {c?.name}</p>
+        <h1 className="text-3xl font-bold mt-1">Hi {st.name.split(' ').slice(-1)[0]} 👋</h1>
+        <p className="text-[var(--text-2)] mt-1">Section {cl?.section} · {cl?.schedule} · Room {cl?.room}</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard icon="award" label="GPA" value={st.gpa.toFixed(2)} sub="this semester" />
+        <StatCard icon="percent" label="Avg Score" value={avgPct ? avgPct + '%' : '—'} sub={`${graded.length} graded`} />
+        <StatCard icon="clipboard-list" label="Upcoming" value={upcoming.length} sub="assignments" />
+        <StatCard icon="user-check" label="Attendance" value={st.attendance + '%'} sub="all sessions" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="glass rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">Up next</h3>
+            <button onClick={()=>setPage('s_assignments')} className="text-xs text-violet-300 hover:text-white">See all →</button>
+          </div>
+          {upcoming.length === 0 ? (
+            <p className="text-sm text-[var(--text-2)] py-6 text-center">Nothing due. Take a breath. 🌿</p>
+          ) : (
+            <ul className="space-y-3">
+              {upcoming.slice(0, 4).map(a => {
+                const days = Math.ceil((new Date(a.dueDate) - today) / 86400000);
+                return (
+                  <li key={a.id} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.03]">
+                    <div>
+                      <div className="font-medium">{a.title}</div>
+                      <div className="text-xs text-[var(--text-3)]">{a.type} · {a.dueDate}</div>
+                    </div>
+                    <span className={'badge ' + (days <= 3 ? 'heat-4' : days <= 7 ? 'heat-3' : 'heat-1')}>
+                      in {days}d
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <h3 className="font-semibold mb-4">Recent grades</h3>
+          {graded.length === 0 ? (
+            <p className="text-sm text-[var(--text-2)] py-6 text-center">No grades yet.</p>
+          ) : (
+            <ul className="space-y-3">
+              {graded.slice(0, 4).map(({a, sub}) => {
+                const pct = Math.round(sub.score / a.maxScore * 100);
+                return (
+                  <li key={a.id} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.03]">
+                    <div>
+                      <div className="font-medium">{a.title}</div>
+                      <div className="text-xs text-[var(--text-3)]">{a.type} · {a.dueDate}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold gradient-text">{sub.score}/{a.maxScore}</div>
+                      <div className="text-xs text-[var(--text-3)]">{pct}%</div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const MySchedule = ({ db, st }) => {
+  const cl = studentClass(db, st);
+  const c = studentCourse(db, st);
+  // Build a simple weekly view from the schedule string e.g. "Mon/Wed 9:00-10:30"
+  const parseSchedule = (s) => {
+    if (!s) return { days: [], time: '' };
+    const [daysPart, ...rest] = s.split(' ');
+    return { days: daysPart.split('/'), time: rest.join(' ') };
+  };
+  const sched = parseSchedule(cl?.schedule);
+  const week = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const today = new Date('2026-05-17');
+  const upcoming = studentAssignments(db, st).filter(a => new Date(a.dueDate) >= today).sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div>
+        <h1 className="text-2xl font-bold">My Schedule</h1>
+        <p className="text-[var(--text-2)] text-sm mt-1">Weekly timetable + upcoming deadlines</p>
+      </div>
+      <div className="glass rounded-2xl p-5">
+        <h3 className="font-semibold mb-4">This week</h3>
+        <div className="grid grid-cols-6 gap-2">
+          {week.map(d => (
+            <div key={d} className="rounded-lg p-3 bg-white/[0.03] min-h-[140px]">
+              <div className="text-xs uppercase tracking-wider text-[var(--text-3)] font-semibold mb-2">{d}</div>
+              {sched.days.includes(d) ? (
+                <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500/25 to-indigo-500/15 border border-violet-400/20">
+                  <div className="text-xs font-bold gradient-text">{c?.code}</div>
+                  <div className="text-[11px] text-[var(--text-1)] mt-0.5">{sched.time}</div>
+                  <div className="text-[11px] text-[var(--text-2)] mt-1 flex items-center gap-1"><Icon name="map-pin" size={10} />{cl?.room}</div>
+                </div>
+              ) : (
+                <div className="text-[11px] text-[var(--text-3)] mt-2">No class</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="glass rounded-2xl p-5">
+        <h3 className="font-semibold mb-4">Upcoming deadlines</h3>
+        {upcoming.length === 0 ? (
+          <p className="text-sm text-[var(--text-2)] py-6 text-center">Nothing due.</p>
+        ) : (
+          <ul className="space-y-2">
+            {upcoming.map(a => {
+              const days = Math.ceil((new Date(a.dueDate) - today) / 86400000);
+              return (
+                <li key={a.id} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.03]">
+                  <div className="flex items-center gap-3">
+                    <Icon name="calendar-clock" size={18} className="text-violet-300" />
+                    <div>
+                      <div className="font-medium">{a.title}</div>
+                      <div className="text-xs text-[var(--text-3)]">{a.type}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-medium">{a.dueDate}</div>
+                    <span className={'badge ' + (days <= 3 ? 'heat-4' : days <= 7 ? 'heat-3' : 'heat-1')}>in {days}d</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const MyGrades = ({ db, st }) => {
+  const c = studentCourse(db, st);
+  const assignments = studentAssignments(db, st);
+  const rows = assignments.map(a => {
+    const sub = studentSub(db, st, a.id);
+    const pct = sub?.score != null ? Math.round(sub.score / a.maxScore * 100) : null;
+    return { a, sub, pct };
+  });
+  const graded = rows.filter(r => r.pct != null);
+  const weighted = graded.reduce((acc, r) => acc + (r.pct * r.a.weight / 100), 0);
+  const weightSum = graded.reduce((acc, r) => acc + r.a.weight, 0);
+  const overall = weightSum ? Math.round(weighted / weightSum * 100) : null;
+
+  const letter = (g) => g >= 3.7 ? 'A' : g >= 3.3 ? 'A-' : g >= 3.0 ? 'B+' : g >= 2.7 ? 'B' : g >= 2.3 ? 'B-' : 'C';
+  const pctColor = (p) => p == null ? 'text-[var(--text-3)]' : p >= 85 ? 'text-emerald-300' : p >= 70 ? 'text-violet-300' : p >= 60 ? 'text-amber-300' : 'text-red-300';
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div>
+        <h1 className="text-2xl font-bold">My Grades</h1>
+        <p className="text-[var(--text-2)] text-sm mt-1">{c?.code} — {c?.name}</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard icon="award" label="GPA" value={st.gpa.toFixed(2)} sub={`Letter: ${letter(st.gpa)}`} />
+        <StatCard icon="percent" label="Course Avg" value={overall ? overall + '%' : '—'} sub="weighted across graded items" />
+        <StatCard icon="user-check" label="Attendance" value={st.attendance + '%'} sub="this term" />
+      </div>
+      <div className="glass rounded-2xl">
+        <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+          <h3 className="font-semibold">Gradebook</h3>
+          <span className="text-xs text-[var(--text-3)]">{graded.length}/{assignments.length} graded</span>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="text-xs uppercase tracking-wider text-[var(--text-3)]">
+            <tr>
+              <th className="text-left px-5 py-3 font-semibold">Assignment</th>
+              <th className="text-left px-5 py-3 font-semibold">Type</th>
+              <th className="text-center px-5 py-3 font-semibold">Due</th>
+              <th className="text-center px-5 py-3 font-semibold">Weight</th>
+              <th className="text-center px-5 py-3 font-semibold">Score</th>
+              <th className="text-center px-5 py-3 font-semibold">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({a, sub, pct}) => (
+              <tr key={a.id} className="row-hover border-t border-[var(--border-2)]">
+                <td className="px-5 py-3 font-medium">{a.title}</td>
+                <td className="px-5 py-3 text-[var(--text-2)]">{a.type}</td>
+                <td className="px-5 py-3 text-center text-[var(--text-2)]">{a.dueDate}</td>
+                <td className="px-5 py-3 text-center text-[var(--text-2)]">{a.weight}%</td>
+                <td className="px-5 py-3 text-center">
+                  {sub?.score != null ? <span>{sub.score} <span className="text-[var(--text-3)]">/ {a.maxScore}</span></span> : <span className="text-[var(--text-3)]">— pending —</span>}
+                </td>
+                <td className={`px-5 py-3 text-center font-semibold ${pctColor(pct)}`}>{pct != null ? pct + '%' : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const MyAssignments = ({ db, st, setDB }) => {
+  const [tab, setTab] = useState('upcoming');
+  const today = new Date('2026-05-17');
+  const all = studentAssignments(db, st).map(a => ({ a, sub: studentSub(db, st, a.id) }));
+  const upcoming = all.filter(x => !x.sub?.submitted && new Date(x.a.dueDate) >= today).sort((a,b)=>a.a.dueDate.localeCompare(b.a.dueDate));
+  const past = all.filter(x => x.sub?.submitted || new Date(x.a.dueDate) < today).sort((a,b)=>b.a.dueDate.localeCompare(a.a.dueDate));
+  const list = tab === 'upcoming' ? upcoming : past;
+  const [opening, setOpening] = useState(null);
+
+  const submit = (assignmentId) => {
+    if (!confirm('Mark this assignment as submitted? (Demo — file upload not implemented)')) return;
+    const next = { ...db };
+    const existing = next.submissions.find(s => s.studentId === st.id && s.assignmentId === assignmentId);
+    if (existing) next.submissions = next.submissions.map(s => s === existing ? { ...s, submitted: true } : s);
+    else next.submissions = [...next.submissions, { id: uid(), studentId: st.id, assignmentId, score: null, submitted: true }];
+    setDB(next);
+  };
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">My Assignments</h1>
+          <p className="text-[var(--text-2)] text-sm mt-1">Stay on top of your deadlines</p>
+        </div>
+        <div className="flex p-1 bg-white/5 rounded-lg">
+          <button onClick={()=>setTab('upcoming')} className={`px-4 py-1.5 rounded-md text-sm font-medium ${tab==='upcoming' ? 'bg-violet-500/30 text-white' : 'text-[var(--text-2)]'}`}>Upcoming ({upcoming.length})</button>
+          <button onClick={()=>setTab('past')} className={`px-4 py-1.5 rounded-md text-sm font-medium ${tab==='past' ? 'bg-violet-500/30 text-white' : 'text-[var(--text-2)]'}`}>Past ({past.length})</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {list.length === 0 ? (
+          <div className="glass rounded-2xl p-10 text-center text-[var(--text-2)] lg:col-span-2">Nothing here.</div>
+        ) : list.map(({a, sub}) => {
+          const days = Math.ceil((new Date(a.dueDate) - today) / 86400000);
+          const pct = sub?.score != null ? Math.round(sub.score / a.maxScore * 100) : null;
+          return (
+            <div key={a.id} className="glass rounded-2xl p-5 fade-in">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <span className="badge heat-2">{a.type}</span>
+                  <h3 className="font-semibold text-lg mt-2">{a.title}</h3>
+                  <p className="text-sm text-[var(--text-2)] mt-1">{a.instructions || '—'}</p>
+                </div>
+                {tab === 'upcoming' && (
+                  <span className={'badge ' + (days <= 3 ? 'heat-4' : days <= 7 ? 'heat-3' : 'heat-1')}>{days >= 0 ? `in ${days}d` : 'late'}</span>
+                )}
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+                <div className="bg-white/[0.03] rounded-lg p-2"><div className="text-[var(--text-3)]">Due</div><div className="font-medium mt-0.5">{a.dueDate}</div></div>
+                <div className="bg-white/[0.03] rounded-lg p-2"><div className="text-[var(--text-3)]">Weight</div><div className="font-medium mt-0.5">{a.weight}%</div></div>
+                <div className="bg-white/[0.03] rounded-lg p-2"><div className="text-[var(--text-3)]">Max</div><div className="font-medium mt-0.5">{a.maxScore}</div></div>
+              </div>
+              <div className="mt-4 flex items-center justify-between">
+                <div className="text-sm">
+                  {sub?.submitted
+                    ? (sub?.score != null
+                        ? <span className="text-emerald-300 font-medium">Graded · {sub.score}/{a.maxScore} ({pct}%)</span>
+                        : <span className="text-violet-300 font-medium">Submitted · awaiting grade</span>)
+                    : <span className="text-[var(--text-3)]">Not submitted</span>}
+                </div>
+                {tab === 'upcoming' && !sub?.submitted && (
+                  <Btn icon="upload" onClick={()=>submit(a.id)}>Submit</Btn>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+//  APP SHELL
+// ============================================================
+const App = () => {
+  const [db, setDB] = useState(loadDB);
+  const [role, setRole] = useState('teacher');
+  const [page, setPage] = useState('dashboard');
+  const [currentStudent, setCurrentStudent] = useState(null);
+  useEffect(() => { saveDB(db); }, [db]);
+
+  const st = db.students.find(x => x.id === currentStudent);
+
+  const TeacherPages = {
+    dashboard: <Dashboard db={db} setPage={setPage} />,
+    courses: <Courses db={db} setDB={setDB} />,
+    classes: <Classes db={db} setDB={setDB} />,
+    students: <Students db={db} setDB={setDB} />,
+    assignments: <Assignments db={db} setDB={setDB} />,
+    matrix: <Matrix db={db} setDB={setDB} />,
+    settings: <Settings db={db} setDB={setDB} />,
+  };
+
+  const StudentPages = st ? {
+    s_home: <StudentHome db={db} st={st} setPage={setPage} />,
+    s_schedule: <MySchedule db={db} st={st} />,
+    s_grades: <MyGrades db={db} st={st} />,
+    s_assignments: <MyAssignments db={db} st={st} setDB={setDB} />,
+  } : null;
+
+  let content;
+  if (role === 'teacher') {
+    content = TeacherPages[page] || TeacherPages.dashboard;
+  } else {
+    content = st ? (StudentPages[page] || StudentPages.s_home) : <PickStudent db={db} setCurrentStudent={setCurrentStudent} />;
+  }
+
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar page={page} setPage={setPage} role={role} setRole={setRole} db={db} currentStudent={currentStudent} setCurrentStudent={setCurrentStudent} />
+      <main className="flex-1 p-8 max-w-[1600px] mx-auto">{content}</main>
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
