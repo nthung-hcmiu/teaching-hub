@@ -924,7 +924,9 @@ const Matrix = ({ db, setDB }) => {
 //  ATTENDANCE — rotating QR check-in (student page: checkin.html)
 // ============================================================
 const AB = window.AttendanceBackend;
-const ACTIVE_ATT_KEY = 'teaching_hub_active_attendance';
+const ACTIVE_ATT_KEY = AB.ACTIVE_KEY;
+const QR_WINDOW = 'edusoft-qr';
+const openQrWindow = () => window.open('present.html', QR_WINDOW, 'popup,width=900,height=900');
 const SCAN_GRACE_MS = 20000;      // a QR stays valid this long after it rotates off screen (slow phones)
 const SUBMIT_LIMIT_MS = 5 * 60000; // time allowed between scanning and submitting the MSSV
 
@@ -1005,26 +1007,13 @@ const evaluateSession = ({ checkins, scans, secret, roster, overrides }) => {
 };
 
 const QRCodeSvg = ({ text, className = '' }) => {
-  const qr = useMemo(() => {
-    const q = window.qrcode(0, 'M');
-    q.addData(text); q.make();
-    const n = q.getModuleCount();
-    let d = '';
-    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c + 3} ${r + 3}h1v1h-1z`;
-    return { size: n + 6, d };
-  }, [text]);
+  const qr = useMemo(() => AB.qrPath(text), [text]);
   return (
     <svg viewBox={`0 0 ${qr.size} ${qr.size}`} className={className} shapeRendering="crispEdges" role="img" aria-label="Attendance QR code">
       <rect width={qr.size} height={qr.size} fill="#fff" />
       <path d={qr.d} fill="#000" />
     </svg>
   );
-};
-
-const checkinUrl = (backend, sessionId, token) => {
-  const p = new URLSearchParams({ s: sessionId, k: token });
-  if (backend.kind === 'firebase') p.set('fb', AB.shortHost(backend.url));
-  return new URL('checkin.html', location.href).href + '?' + p.toString();
 };
 
 const downloadCsv = (rec) => {
@@ -1053,10 +1042,9 @@ const useAttendanceBackend = (url) => {
   return state;
 };
 
-const LiveSession = ({ db, backend, active, setActive, onEnd }) => {
+const LiveSession = ({ db, backend, active, setActive, onEnd, onRestart }) => {
   const roster = useMemo(() => db.students.filter(s => s.classId === active.classId), [db.students, active.classId]);
   const [now, setNow] = useState(() => backend.now());
-  const [projector, setProjector] = useState(false);
   const [scans, setScans] = useState({});
   const [checkins, setCheckins] = useState({});
   const [verdicts, setVerdicts] = useState(null);
@@ -1075,16 +1063,10 @@ const LiveSession = ({ db, backend, active, setActive, onEnd }) => {
     ];
     return () => off.forEach(fn => fn());
   }, [backend, base]);
-  useEffect(() => {
-    if (!projector) return;
-    const onKey = (e) => { if (e.key === 'Escape') setProjector(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [projector]);
 
   const idx = Math.floor(now / AB.WINDOW_MS);
   const remaining = AB.WINDOW_MS - (now % AB.WINDOW_MS);
-  const url = useMemo(() => checkinUrl(backend, active.id, AB.makeToken(active.secret, idx)), [backend, active.id, active.secret, idx]);
+  const url = useMemo(() => AB.checkinUrl(backend, active.id, AB.makeToken(active.secret, idx)), [backend, active.id, active.secret, idx]);
   const result = useMemo(
     () => evaluateSession({ checkins, scans, secret: active.secret, roster, overrides: active.overrides }),
     [checkins, scans, active.secret, active.overrides, roster]
@@ -1112,6 +1094,11 @@ const LiveSession = ({ db, backend, active, setActive, onEnd }) => {
   const review = result.rows.filter(r => r.status === 'unknown').length;
   const title = classLabelOf(db, active.classId);
 
+  // The QR window (present.html) shows this count; it only reads, never judges.
+  useEffect(() => {
+    try { localStorage.setItem(AB.STATS_KEY, JSON.stringify({ id: active.id, title, present, roster: roster.length })); } catch {}
+  }, [active.id, title, present, roster.length]);
+
   const end = async () => {
     if (!confirm('End this attendance session? Students will no longer be able to check in.')) return;
     try { await backend.update(`${base}/meta`, { status: 'closed', closedAt: backend.stamp() }); }
@@ -1129,12 +1116,12 @@ const LiveSession = ({ db, backend, active, setActive, onEnd }) => {
     try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
   };
 
-  const Countdown = ({ big = false }) => (
-    <div className={big ? 'w-full max-w-[min(70vh,80vw)]' : 'w-full'}>
-      <div className={`flex justify-between ${big ? 'text-lg' : 'text-xs'} text-[var(--text-2)] mb-1.5`}>
+  const Countdown = () => (
+    <div className="w-full">
+      <div className="flex justify-between text-xs text-[var(--text-2)] mb-1.5">
         <span>New code in</span><span className="font-semibold text-white tabular-nums">{Math.ceil(remaining / 1000)}s</span>
       </div>
-      <div className={`${big ? 'h-2.5' : 'h-1.5'} rounded-full bg-white/10 overflow-hidden`}>
+      <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
         <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500" style={{ width: (remaining / AB.WINDOW_MS) * 100 + '%', transition: 'width 0.2s linear' }} />
       </div>
     </div>
@@ -1152,10 +1139,20 @@ const LiveSession = ({ db, backend, active, setActive, onEnd }) => {
           <p className="text-[var(--text-2)] text-sm mt-1">Started {fmtTime(active.startedAt)} · Session <code className="text-violet-300">{active.id}</code></p>
         </div>
         <div className="flex gap-2">
-          <Btn variant="ghost" icon="maximize" onClick={() => setProjector(true)}>Projector mode</Btn>
+          <Btn variant="ghost" icon="monitor-up" onClick={openQrWindow}>Open QR window</Btn>
           <Btn variant="danger" icon="square" onClick={end}>End session</Btn>
         </div>
       </div>
+
+      {backend.kind === 'local' && AB.getSavedUrl() && (
+        <div className="rounded-2xl p-4 bg-amber-500/10 border border-amber-400/30 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm">
+            <div className="font-semibold text-amber-200">This session is running in demo mode</div>
+            <div className="text-amber-100/80">It was started before Firebase was connected, so students' phones cannot find it ("Phiên điểm danh không tồn tại").</div>
+          </div>
+          <Btn icon="refresh-cw" onClick={onRestart}>Restart on Firebase</Btn>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(280px,380px)_1fr] gap-4">
         <div className="glass rounded-2xl p-5 flex flex-col items-center gap-4">
@@ -1231,17 +1228,6 @@ const LiveSession = ({ db, backend, active, setActive, onEnd }) => {
         </div>
       </div>
 
-      {projector && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-50 bg-[var(--bg-0)] flex flex-col items-center justify-center gap-5 p-6">
-          <button onClick={() => setProjector(false)} className="absolute top-5 right-5 text-[var(--text-2)] hover:text-white"><Icon name="x" size={28} /></button>
-          <h2 className="text-3xl font-bold text-center">{title} · Điểm danh</h2>
-          <p className="text-[var(--text-2)] text-lg -mt-3">Quét mã QR và nhập MSSV</p>
-          <QRCodeSvg text={url} className="w-[min(70vh,80vw)] rounded-2xl" />
-          <Countdown big />
-          <div className="text-xl"><span className="font-bold text-emerald-300 text-3xl tabular-nums">{present}</span> <span className="text-[var(--text-2)]">/ {roster.length} checked in</span></div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 };
@@ -1256,10 +1242,12 @@ const Attendance = ({ db, setDB }) => {
   const { backend, error } = useAttendanceBackend(active ? active.backendUrl : AB.getSavedUrl());
   const [classId, setClassId] = useState(db.classes[0]?.id || '');
   const [starting, setStarting] = useState(false);
+  const [autoStart, setAutoStart] = useState(false);
   const history = db.attendance || [];
 
-  const start = async () => {
+  const start = async (fromClick = false) => {
     if (!classId) return;
+    if (fromClick) openQrWindow();
     setStarting(true);
     try {
       const id = AB.randomId(8);
@@ -1270,6 +1258,18 @@ const Attendance = ({ db, setDB }) => {
       alert('Could not start session: ' + e.message);
     } finally { setStarting(false); }
   };
+
+  // "Restart on Firebase": drop the demo session, then start again once the saved backend is connected.
+  const restart = () => {
+    if (!confirm('Discard this demo session and start a new one on Firebase?')) return;
+    setClassId(active.classId);
+    setAutoStart(true);
+    setActive(null);
+  };
+  useEffect(() => {
+    // Wait until the hook has switched to the saved Firebase backend, not the old demo one.
+    if (autoStart && backend && !active && backend.url === AB.getSavedUrl()) { setAutoStart(false); start(); }
+  }, [autoStart, backend, active]);
 
   const onEnd = (record) => {
     setDB({ ...db, attendance: [record, ...history] });
@@ -1291,7 +1291,7 @@ const Attendance = ({ db, setDB }) => {
     );
   }
   if (!backend) return <div className="text-[var(--text-2)] fade-in">Connecting to attendance backend…</div>;
-  if (active) return <LiveSession db={db} backend={backend} active={active} setActive={setActive} onEnd={onEnd} />;
+  if (active) return <LiveSession db={db} backend={backend} active={active} setActive={setActive} onEnd={onEnd} onRestart={restart} />;
 
   return (
     <div className="space-y-4 fade-in">
@@ -1310,7 +1310,7 @@ const Attendance = ({ db, setDB }) => {
             </Field>
           </div>
           <div className="mb-3">
-            <button onClick={start} disabled={!classId || starting}
+            <button onClick={() => start(true)} disabled={!classId || starting}
               className="btn-primary text-white inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium disabled:opacity-50">
               <Icon name="qr-code" size={16} /> {starting ? 'Starting…' : 'Start attendance'}
             </button>
