@@ -1,0 +1,78 @@
+{
+  "rules": {
+    "initialized": {
+      ".read": "auth != null",
+      ".write": "!data.exists() && newData.val() === true && auth != null && auth.token.email_verified === true && newData.parent().child('teachers').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'admin'"
+    },
+    "teachers": {
+      ".read": "auth != null && auth.token.email_verified === true && root.child('teachers').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'admin'",
+      "$emailKey": {
+        ".read": "auth != null && auth.token.email_verified === true && $emailKey === auth.token.email.toLowerCase().replace('.', ',')",
+        ".write": "auth != null && auth.token.email_verified === true && (root.child('teachers').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'admin' || (!root.child('initialized').exists() && $emailKey === auth.token.email.toLowerCase().replace('.', ',') && newData.child('role').val() === 'admin'))",
+        ".validate": "newData.hasChildren(['role', 'email']) && (newData.child('role').val() === 'admin' || newData.child('role').val() === 'teacher')"
+      }
+    },
+    "data": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid && auth.token.email_verified === true && root.child('teachers').child(auth.token.email.toLowerCase().replace('.', ',')).exists()",
+        ".write": "auth != null && auth.uid === $uid && auth.token.email_verified === true && root.child('teachers').child(auth.token.email.toLowerCase().replace('.', ',')).exists()"
+      }
+    },
+    "viewIndex": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid && auth.token.email_verified === true && root.child('teachers').child(auth.token.email.toLowerCase().replace('.', ',')).exists()"
+      }
+    },
+    "studentViews": {
+      "$emailKey": {
+        ".read": "auth != null && auth.token.email_verified === true && $emailKey === auth.token.email.toLowerCase().replace('.', ',')",
+        "$teacherUid": {
+          ".write": "auth != null && auth.uid === $teacherUid && auth.token.email_verified === true && root.child('teachers').child(auth.token.email.toLowerCase().replace('.', ',')).exists()"
+        }
+      }
+    },
+    "studentSubmits": {
+      "$teacherUid": {
+        ".read": "auth != null && auth.uid === $teacherUid",
+        "$recordId": {
+          ".read": "auth != null && auth.token.email_verified === true && root.child('studentViews').child(auth.token.email.toLowerCase().replace('.', ',')).child($teacherUid).child($recordId).exists()",
+          "$assignmentId": {
+            ".write": "auth != null && auth.token.email_verified === true && root.child('studentViews').child(auth.token.email.toLowerCase().replace('.', ',')).child($teacherUid).child($recordId).exists()",
+            ".validate": "newData.child('at').val() === now && newData.child('email').val() === auth.token.email.toLowerCase()"
+          }
+        }
+      }
+    },
+    "att": {
+      "$sid": {
+        "meta": {
+          ".read": true,
+          ".write": "auth != null && auth.token.email_verified === true && root.child('teachers').child(auth.token.email.toLowerCase().replace('.', ',')).exists() && (!data.exists() || data.child('owner').val() === auth.uid)",
+          ".validate": "newData.child('owner').val() === auth.uid"
+        },
+        "verdicts": {
+          ".read": "auth != null && root.child('att').child($sid).child('meta').child('owner').val() === auth.uid",
+          "$id": {
+            ".read": true
+          },
+          ".write": "auth != null && root.child('att').child($sid).child('meta').child('owner').val() === auth.uid"
+        },
+        "scans": {
+          ".read": "auth != null && root.child('att').child($sid).child('meta').child('owner').val() === auth.uid",
+          "$id": {
+            ".write": "!data.exists() && root.child('att').child($sid).child('meta').exists()",
+            ".validate": "newData.child('at').val() === now"
+          }
+        },
+        "checkins": {
+          ".read": "auth != null && root.child('att').child($sid).child('meta').child('owner').val() === auth.uid",
+          "$id": {
+            ".write": "!data.exists() && root.child('att').child($sid).child('meta').child('status').val() === 'open'",
+            ".validate": "newData.child('at').val() === now"
+          }
+        }
+      }
+    }
+  }
+}
