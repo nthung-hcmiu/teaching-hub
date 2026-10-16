@@ -28,7 +28,13 @@
     return u.replace(/\/+$/, '');
   };
   const shortHost = (u) => (u || '').replace(/^https?:\/\//i, '');
-  const getSavedUrl = () => { try { return localStorage.getItem(URL_KEY) || ''; } catch { return ''; } };
+  // Set in firebase-config.js. When present, every page uses that project (with sign-in)
+  // and the Database URL typed in Settings is ignored.
+  const CLOUD = window.EDUSOFT_FIREBASE_CONFIG || null;
+  const getSavedUrl = () => {
+    if (CLOUD) return normalizeUrl(CLOUD.databaseURL);
+    try { return localStorage.getItem(URL_KEY) || ''; } catch { return ''; }
+  };
   const saveUrl = (u) => {
     const v = normalizeUrl(u);
     if (v) localStorage.setItem(URL_KEY, v); else localStorage.removeItem(URL_KEY);
@@ -115,15 +121,39 @@
   });
   const withTimeout = (p, ms, msg) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
 
+  const loaded = {};
+  const loadSdk = (part) => loaded[part] || (loaded[part] = loadScript(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-${part}-compat.js`));
+  const loadFirebase = async (withAuth) => {
+    if (!window.firebase) await loadSdk('app');
+    if (!window.firebase.database) await loadSdk('database');
+    if (withAuth && !window.firebase.auth) await loadSdk('auth');
+  };
+
+  // The project from firebase-config.js. `emulator` (tests only) points it at local emulators.
+  let cloudApp = null, authReady = false;
+  const getCloudApp = async (withAuth = false) => {
+    if (!CLOUD) throw new Error('firebase-config.js is not set up.');
+    await loadFirebase(withAuth);
+    if (!cloudApp) {
+      cloudApp = window.firebase.initializeApp(CLOUD);
+      if (CLOUD.emulator) cloudApp.database().useEmulator(...CLOUD.emulator.database);
+    }
+    if (withAuth && !authReady) {
+      authReady = true;
+      if (CLOUD.emulator) cloudApp.auth().useEmulator(CLOUD.emulator.auth);
+    }
+    return cloudApp;
+  };
+
   async function firebaseBackend(url) {
-    if (!window.firebase || !window.firebase.database) {
-      const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}`;
-      await loadScript(`${base}/firebase-app-compat.js`);
-      await loadScript(`${base}/firebase-database-compat.js`);
+    let app;
+    if (CLOUD) app = await getCloudApp();
+    else {
+      await loadFirebase(false);
+      const name = 'th-' + shortHost(url);
+      app = window.firebase.apps.find(a => a.name === name) || window.firebase.initializeApp({ databaseURL: url }, name);
     }
     const fb = window.firebase;
-    const name = 'th-' + shortHost(url);
-    const app = fb.apps.find(a => a.name === name) || fb.initializeApp({ databaseURL: url }, name);
     const db = app.database();
     let offset = 0;
     db.ref('.info/serverTimeOffset').on('value', s => { offset = s.val() || 0; });
@@ -148,7 +178,7 @@
   // Link the QR points to. The Firebase host rides along so phones need no setup.
   const checkinUrl = (backend, sessionId, token) => {
     const p = new URLSearchParams({ s: sessionId, k: token });
-    if (backend.kind === 'firebase') p.set('fb', shortHost(backend.url));
+    if (backend.kind === 'firebase' && !CLOUD) p.set('fb', shortHost(backend.url));
     return new URL('checkin.html', location.href).href + '?' + p.toString();
   };
 
@@ -162,11 +192,15 @@
     return { size: n + 6, d };
   };
 
-  const connect = (url) => (url ? firebaseBackend(normalizeUrl(url)) : Promise.resolve(localBackend()));
+  const connect = (url) => (CLOUD ? firebaseBackend(getSavedUrl()) : url ? firebaseBackend(normalizeUrl(url)) : Promise.resolve(localBackend()));
+  // Firebase keys cannot contain '.', so emails are stored with ',' instead (rules do the same).
+  const emailKey = (email) => (email || '').trim().toLowerCase().replace(/\./g, ',');
 
   window.AttendanceBackend = {
     WINDOW_MS, connect, randomId, normalizeUrl, shortHost, getSavedUrl, saveUrl,
     sanitizeId, deviceId, makeToken, verifyToken, checkinUrl, qrPath,
+    cloud: CLOUD, getCloudApp, emailKey,
+    currentUid: () => (cloudApp && window.firebase.auth ? cloudApp.auth().currentUser?.uid : null) || null,
     ACTIVE_KEY: 'teaching_hub_active_attendance',
     STATS_KEY: 'edusoft_qr_stats',
   };

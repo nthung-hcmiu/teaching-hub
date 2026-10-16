@@ -11,6 +11,7 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="firebase-config.js"></script>
 <script src="attendance-backend.js"></script>
 <style>
   :root {
@@ -293,13 +294,16 @@ const STUDENT_NAV = [
   { key: 's_assignments', label: 'My Assignments', icon: 'clipboard-list' },
 ];
 
-const Sidebar = ({ page, setPage, role, setRole, db, currentStudent, setCurrentStudent }) => {
-  const nav = role === 'teacher' ? TEACHER_NAV : STUDENT_NAV;
+// `cloud` is set when accounts are on: { user, isAdmin, onSignOut, records, sel, setSel }.
+const Sidebar = ({ page, setPage, role, setRole, db, currentStudent, setCurrentStudent, cloud }) => {
+  const nav = role === 'teacher'
+    ? (cloud?.isAdmin ? [...TEACHER_NAV.slice(0, -1), { key: 'teachers', label: 'Teachers', icon: 'shield-check' }, TEACHER_NAV[TEACHER_NAV.length - 1]] : TEACHER_NAV)
+    : (cloud ? [...STUDENT_NAV, { key: 's_attendance', label: 'My Attendance', icon: 'user-check' }] : STUDENT_NAV);
   const profile = role === 'teacher'
-    ? { name: db.user.name, sub: db.user.role }
+    ? { name: db.user.name || cloud?.user.email || 'Teacher', sub: cloud?.isAdmin ? 'Admin · ' + (db.user.role || 'Instructor') : db.user.role }
     : (() => {
         const s = db.students.find(x => x.id === currentStudent);
-        return s ? { name: s.name, sub: s.studentId } : { name: 'Pick a student', sub: '—' };
+        return s ? { name: s.name, sub: s.studentId } : { name: cloud?.user.displayName || cloud?.user.email || 'Pick a student', sub: '—' };
       })();
   return (
     <aside className="w-64 shrink-0 h-screen sticky top-0 glass flex flex-col border-r border-[var(--border)]">
@@ -315,8 +319,8 @@ const Sidebar = ({ page, setPage, role, setRole, db, currentStudent, setCurrentS
         </div>
       </div>
 
-      {/* Role switcher */}
-      <div className="px-3 pt-3">
+      {/* Role switcher (demo mode only; with accounts the role comes from sign-in) */}
+      {!cloud && <div className="px-3 pt-3">
         <div className="flex p-1 bg-white/5 rounded-lg">
           <button onClick={()=>{setRole('teacher'); setPage('dashboard');}}
             className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition ${role==='teacher' ? 'bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow' : 'text-[var(--text-2)] hover:text-white'}`}>
@@ -334,7 +338,14 @@ const Sidebar = ({ page, setPage, role, setRole, db, currentStudent, setCurrentS
             {db.students.map(s => <option key={s.id} value={s.id}>{s.studentId} · {s.name}</option>)}
           </select>
         )}
-      </div>
+      </div>}
+      {cloud && cloud.records?.length > 1 && (
+        <div className="px-3 pt-3">
+          <select value={cloud.sel} onChange={e=>cloud.setSel(+e.target.value)} className="w-full px-2 py-2 rounded-md text-xs">
+            {cloud.records.map((r, i) => <option key={r.recordId} value={i}>{r.view.course?.code || 'Class'} · {r.view.class?.section ? 'Section ' + r.view.class.section : ''} · {r.view.teacher?.name || ''}</option>)}
+          </select>
+        </div>
+      )}
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto scrollbar-thin mt-2">
         {nav.map(item => (
@@ -352,12 +363,17 @@ const Sidebar = ({ page, setPage, role, setRole, db, currentStudent, setCurrentS
       <div className="p-3 border-t border-[var(--border)]">
         <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-fuchsia-500 to-violet-600 flex items-center justify-center font-semibold text-sm">
-            {profile.name.split(' ').map(s => s[0]).slice(0,2).join('')}
+            {(profile.name || '?').split(' ').map(s => s[0]).slice(0,2).join('')}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="text-sm font-medium truncate">{profile.name}</div>
             <div className="text-[11px] text-[var(--text-3)] truncate">{profile.sub}</div>
           </div>
+          {cloud && (
+            <button title="Sign out" onClick={cloud.onSignOut} className="p-1.5 rounded-md text-[var(--text-2)] hover:text-white hover:bg-white/10">
+              <Icon name="log-out" size={16} />
+            </button>
+          )}
         </div>
       </div>
     </aside>
@@ -369,15 +385,15 @@ const Sidebar = ({ page, setPage, role, setRole, db, currentStudent, setCurrentS
 // ============================================================
 const Dashboard = ({ db, setPage }) => {
   const totalEnrolled = db.classes.reduce((a, c) => a + c.enrolled, 0);
-  const avgGpa = (db.students.reduce((a, s) => a + s.gpa, 0) / db.students.length).toFixed(2);
+  const avgGpa = db.students.length ? (db.students.reduce((a, s) => a + (s.gpa || 0), 0) / db.students.length).toFixed(2) : '—';
   const matrixOnTarget = db.matrix.filter(m => m.actual >= m.target).length;
-  const matrixHealth = Math.round((matrixOnTarget / db.matrix.length) * 100);
+  const matrixHealth = db.matrix.length ? Math.round((matrixOnTarget / db.matrix.length) * 100) : 0;
 
   return (
     <div className="space-y-6 fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Welcome back, {db.user.name.split(' ')[0]} 👋</h1>
+          <h1 className="text-3xl font-bold">Welcome back, {(db.user.name || 'there').split(' ')[0]} 👋</h1>
           <p className="text-[var(--text-2)] mt-1">Here's what's happening across your teaching portfolio.</p>
         </div>
         <div className="flex gap-2">
@@ -645,10 +661,35 @@ const Classes = ({ db, setDB }) => {
 // ============================================================
 //  STUDENTS
 // ============================================================
+// Rows pasted from Excel/Google Sheets: MSSV, Name, Email (tab or comma separated; header row optional).
+const parseRoster = (text) => text.split(/\r?\n/).map(line => line.split(/\t|,|;/).map(c => c.trim()))
+  .filter(cells => cells[0] && !/^(mssv|student ?id|id|stt)$/i.test(cells[0]))
+  .map(cells => {
+    const email = cells.find(c => /@/.test(c)) || '';
+    const rest = cells.filter(c => c !== email);
+    return { studentId: rest[0] || '', name: rest.slice(1).join(' ').trim(), email: email.toLowerCase() };
+  })
+  .filter(r => AB.sanitizeId(r.studentId).length >= 3);
+
 const Students = ({ db, setDB }) => {
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState('');
   const [filterClass, setFilterClass] = useState('all');
+  const [importing, setImporting] = useState(null);
+  const parsed = useMemo(() => importing ? parseRoster(importing.text) : [], [importing?.text]);
+  const runImport = () => {
+    const inClass = db.students.filter(s => s.classId === importing.classId);
+    let added = 0, updated = 0;
+    let students = [...db.students];
+    parsed.forEach(row => {
+      const ex = inClass.find(s => AB.sanitizeId(s.studentId) === AB.sanitizeId(row.studentId));
+      if (ex) { students = students.map(s => s.id === ex.id ? { ...s, name: row.name || s.name, email: row.email || s.email } : s); updated++; }
+      else { students.push({ id: uid(), studentId: row.studentId, name: row.name, email: row.email, classId: importing.classId, gpa: 0, attendance: 0 }); added++; }
+    });
+    setDB({ ...db, students });
+    setImporting(null);
+    alert(`Imported: ${added} added, ${updated} updated.`);
+  };
 
   const classLabel = (id) => {
     const cl = db.classes.find(c => c.id === id);
@@ -680,7 +721,10 @@ const Students = ({ db, setDB }) => {
           <h1 className="text-2xl font-bold">Students</h1>
           <p className="text-[var(--text-2)] text-sm mt-1">{db.students.length} enrolled across {db.classes.length} classes</p>
         </div>
-        <Btn icon="user-plus" onClick={()=>setEditing({ studentId:'', name:'', email:'', classId: db.classes[0]?.id, gpa: 3.0, attendance: 90 })}>Add Student</Btn>
+        <div className="flex gap-2">
+          <Btn variant="ghost" icon="clipboard-paste" onClick={()=>setImporting({ classId: db.classes[0]?.id || '', text: '' })}>Import list</Btn>
+          <Btn icon="user-plus" onClick={()=>setEditing({ studentId:'', name:'', email:'', classId: db.classes[0]?.id, gpa: 3.0, attendance: 90 })}>Add Student</Btn>
+        </div>
       </div>
       <div className="glass rounded-2xl">
         <div className="p-4 border-b border-[var(--border)] flex flex-wrap items-center gap-3">
@@ -712,7 +756,7 @@ const Students = ({ db, setDB }) => {
                 <td className="px-5 py-3 font-medium">{s.name}</td>
                 <td className="px-5 py-3 text-[var(--text-2)]">{s.email}</td>
                 <td className="px-5 py-3"><span className="badge heat-2">{classLabel(s.classId)}</span></td>
-                <td className="px-5 py-3 text-center"><span className={'badge ' + gpaColor(s.gpa)}>{s.gpa.toFixed(2)}</span></td>
+                <td className="px-5 py-3 text-center"><span className={'badge ' + gpaColor(s.gpa || 0)}>{(s.gpa || 0).toFixed(2)}</span></td>
                 <td className="px-5 py-3 text-center"><span className={'badge ' + attColor(s.attendance)}>{s.attendance}%</span></td>
                 <td className="px-5 py-3 text-right">
                   <button onClick={()=>setEditing(s)} className="text-[var(--text-2)] hover:text-white p-1 mr-1"><Icon name="pencil" size={15} /></button>
@@ -737,7 +781,7 @@ const Students = ({ db, setDB }) => {
               </Field>
             </div>
             <Field label="Full name"><input className={inputClass} value={editing.name} onChange={e=>setEditing({...editing, name:e.target.value})} required /></Field>
-            <Field label="Email"><input type="email" className={inputClass} value={editing.email} onChange={e=>setEditing({...editing, email:e.target.value})} required /></Field>
+            <Field label="Email (used to sign in)"><input type="email" className={inputClass} value={editing.email} onChange={e=>setEditing({...editing, email:e.target.value})} required /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="GPA"><input type="number" step="0.01" min="0" max="4" className={inputClass} value={editing.gpa} onChange={e=>setEditing({...editing, gpa:+e.target.value})} /></Field>
               <Field label="Attendance %"><input type="number" min="0" max="100" className={inputClass} value={editing.attendance} onChange={e=>setEditing({...editing, attendance:+e.target.value})} /></Field>
@@ -747,6 +791,33 @@ const Students = ({ db, setDB }) => {
               <Btn type="submit" icon="save">Save student</Btn>
             </div>
           </form>
+        )}
+      </Modal>
+
+      <Modal open={!!importing} onClose={()=>setImporting(null)} title="Import student list" wide>
+        {importing && (
+          <div>
+            <p className="text-sm text-[var(--text-2)] mb-3">Copy the columns <b>MSSV</b>, <b>Name</b>, <b>Email</b> from Excel or Google Sheets and paste them below. Students sign in with this email to see their grades. Existing MSSVs in the class are updated, not duplicated.</p>
+            <Field label="Class">
+              <select className={inputClass} value={importing.classId} onChange={e=>setImporting({...importing, classId: e.target.value})}>
+                {db.classes.map(cl => <option key={cl.id} value={cl.id}>{classLabel(cl.id)}</option>)}
+              </select>
+            </Field>
+            <Field label="Paste rows">
+              <textarea rows="8" className={inputClass + ' font-mono text-xs'} value={importing.text} onChange={e=>setImporting({...importing, text: e.target.value})}
+                placeholder={"MSSV\tName\tEmail\nITITIU21001\tNguyen Van A\tituiu21001@student.hcmiu.edu.vn"} />
+            </Field>
+            <div className="text-xs text-[var(--text-2)] mb-2">{parsed.length} students found{parsed.filter(r => !r.email).length ? ` · ${parsed.filter(r => !r.email).length} without email (they can check in but cannot sign in)` : ''}</div>
+            {parsed.length > 0 && (
+              <div className="max-h-48 overflow-y-auto scrollbar-thin rounded-lg bg-white/5 text-xs mb-3">
+                {parsed.slice(0, 50).map((r, k) => <div key={k} className="px-3 py-1.5 border-b border-[var(--border-2)] flex gap-3"><span className="font-mono w-28 shrink-0">{r.studentId}</span><span className="flex-1 truncate">{r.name}</span><span className="text-[var(--text-2)] truncate">{r.email || '—'}</span></div>)}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Btn variant="ghost" onClick={()=>setImporting(null)}>Cancel</Btn>
+              <Btn icon="upload" onClick={parsed.length && importing.classId ? runImport : undefined}>Import {parsed.length || ''}</Btn>
+            </div>
+          </div>
         )}
       </Modal>
     </div>
@@ -1252,7 +1323,9 @@ const Attendance = ({ db, setDB }) => {
     try {
       const id = AB.randomId(8);
       const startedAt = backend.now();
-      await backend.set(`att/${id}/meta`, { title: classLabelOf(db, classId), status: 'open', startedAt: backend.stamp() });
+      const meta = { title: classLabelOf(db, classId), status: 'open', startedAt: backend.stamp() };
+      if (AB.currentUid()) meta.owner = AB.currentUid(); // with accounts, only the owner may manage the session
+      await backend.set(`att/${id}/meta`, meta);
       setActive({ id, classId, secret: AB.randomId(24), startedAt, backendUrl: backend.url, overrides: {} });
     } catch (e) {
       alert('Could not start session: ' + e.message);
@@ -1364,6 +1437,7 @@ const Settings = ({ db, setDB }) => {
   const [user, setUser] = useState(db.user);
   const reset = () => {
     if (!confirm('Reset all data to demo seed? This cannot be undone.')) return;
+    if (CLOUD_ON) { setDB({ ...seed(), user: db.user }); return; }
     localStorage.removeItem(DB_KEY);
     setDB(loadDB());
     setUser(loadDB().user);
@@ -1426,7 +1500,9 @@ const Settings = ({ db, setDB }) => {
 
       <div className="glass rounded-2xl p-5">
         <h3 className="font-semibold mb-2">Data</h3>
-        <p className="text-sm text-[var(--text-2)] mb-4">Your data lives in this browser's <code className="text-violet-300">localStorage</code>. Export it as JSON if you want a backup.</p>
+        <p className="text-sm text-[var(--text-2)] mb-4">{CLOUD_ON
+          ? <>Your data is saved to your Edusoft account and syncs across devices. Export it as JSON if you want a backup.</>
+          : <>Your data lives in this browser's <code className="text-violet-300">localStorage</code>. Export it as JSON if you want a backup.</>}</p>
         <div className="flex flex-wrap gap-2">
           <Btn variant="ghost" icon="download" onClick={exportJson}>Export JSON</Btn>
           <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-white/5 hover:bg-white/10 cursor-pointer">
@@ -1437,6 +1513,12 @@ const Settings = ({ db, setDB }) => {
         </div>
       </div>
 
+      {CLOUD_ON ? (
+      <div className="glass rounded-2xl p-5">
+        <h3 className="font-semibold mb-2">Cloud</h3>
+        <p className="text-sm text-[var(--text-2)]">Accounts, data and attendance use the Firebase project <code className="text-violet-300">{AB.cloud.projectId}</code> set in <code className="text-violet-300">firebase-config.js</code>.</p>
+      </div>
+      ) : (
       <div className="glass rounded-2xl p-5">
         <h3 className="font-semibold mb-2">Attendance backend (Firebase)</h3>
         <p className="text-sm text-[var(--text-2)] mb-4">QR check-in needs a shared database so students' phones can reach your screen. Create a free Firebase project, enable <b>Realtime Database</b>, and paste its URL here. Leave empty for demo mode (same browser only). Setup steps are in the README.</p>
@@ -1448,6 +1530,7 @@ const Settings = ({ db, setDB }) => {
           <Btn icon="save" onClick={saveFirebase}>Save &amp; test</Btn>
         </div>
       </div>
+      )}
 
       <div className="glass rounded-2xl p-5">
         <h3 className="font-semibold mb-2">About</h3>
@@ -1485,7 +1568,7 @@ const Assignments = ({ db, setDB }) => {
 
   const filtered = filterClass === 'all' ? db.assignments : db.assignments.filter(a => a.classId === filterClass);
   const statusOf = (a) => {
-    const today = new Date('2026-05-17');
+    const today = new Date();
     const due = new Date(a.dueDate);
     return due < today ? 'past' : 'upcoming';
   };
@@ -1667,7 +1750,7 @@ const StudentHome = ({ db, st, setPage }) => {
   const cl = studentClass(db, st);
   const c = studentCourse(db, st);
   const myAssignments = studentAssignments(db, st);
-  const today = new Date('2026-05-17');
+  const today = new Date();
   const upcoming = myAssignments.filter(a => new Date(a.dueDate) >= today).sort((a,b) => a.dueDate.localeCompare(b.dueDate));
   const graded = myAssignments.map(a => ({ a, sub: studentSub(db, st, a.id) })).filter(x => x.sub?.score != null);
   const avgPct = graded.length ? Math.round(graded.reduce((acc, x) => acc + (x.sub.score / x.a.maxScore * 100), 0) / graded.length) : null;
@@ -1680,7 +1763,7 @@ const StudentHome = ({ db, st, setPage }) => {
         <p className="text-[var(--text-2)] mt-1">Section {cl?.section} · {cl?.schedule} · Room {cl?.room}</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard icon="award" label="GPA" value={st.gpa.toFixed(2)} sub="this semester" />
+        <StatCard icon="award" label="GPA" value={(st.gpa || 0).toFixed(2)} sub="this semester" />
         <StatCard icon="percent" label="Avg Score" value={avgPct ? avgPct + '%' : '—'} sub={`${graded.length} graded`} />
         <StatCard icon="clipboard-list" label="Upcoming" value={upcoming.length} sub="assignments" />
         <StatCard icon="user-check" label="Attendance" value={st.attendance + '%'} sub="all sessions" />
@@ -1753,7 +1836,7 @@ const MySchedule = ({ db, st }) => {
   };
   const sched = parseSchedule(cl?.schedule);
   const week = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const today = new Date('2026-05-17');
+  const today = new Date();
   const upcoming = studentAssignments(db, st).filter(a => new Date(a.dueDate) >= today).sort((a,b) => a.dueDate.localeCompare(b.dueDate));
 
   return (
@@ -1836,7 +1919,7 @@ const MyGrades = ({ db, st }) => {
         <p className="text-[var(--text-2)] text-sm mt-1">{c?.code} — {c?.name}</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard icon="award" label="GPA" value={st.gpa.toFixed(2)} sub={`Letter: ${letter(st.gpa)}`} />
+        <StatCard icon="award" label="GPA" value={(st.gpa || 0).toFixed(2)} sub={`Letter: ${letter(st.gpa || 0)}`} />
         <StatCard icon="percent" label="Course Avg" value={overall ? overall + '%' : '—'} sub="weighted across graded items" />
         <StatCard icon="user-check" label="Attendance" value={st.attendance + '%'} sub="this term" />
       </div>
@@ -1878,7 +1961,7 @@ const MyGrades = ({ db, st }) => {
 
 const MyAssignments = ({ db, st, setDB }) => {
   const [tab, setTab] = useState('upcoming');
-  const today = new Date('2026-05-17');
+  const today = new Date();
   const all = studentAssignments(db, st).map(a => ({ a, sub: studentSub(db, st, a.id) }));
   const upcoming = all.filter(x => !x.sub?.submitted && new Date(x.a.dueDate) >= today).sort((a,b)=>a.a.dueDate.localeCompare(b.a.dueDate));
   const past = all.filter(x => x.sub?.submitted || new Date(x.a.dueDate) < today).sort((a,b)=>b.a.dueDate.localeCompare(a.a.dueDate));
@@ -1952,7 +2035,27 @@ const MyAssignments = ({ db, st, setDB }) => {
 // ============================================================
 //  APP SHELL
 // ============================================================
-const App = () => {
+const teacherPages = (db, setDB, setPage, extra = {}) => ({
+  dashboard: <Dashboard db={db} setPage={setPage} />,
+  courses: <Courses db={db} setDB={setDB} />,
+  classes: <Classes db={db} setDB={setDB} />,
+  students: <Students db={db} setDB={setDB} />,
+  attendance: <Attendance db={db} setDB={setDB} />,
+  assignments: <Assignments db={db} setDB={setDB} />,
+  matrix: <Matrix db={db} setDB={setDB} />,
+  settings: <Settings db={db} setDB={setDB} />,
+  ...extra,
+});
+const studentPages = (db, st, setDB, setPage, extra = {}) => ({
+  s_home: <StudentHome db={db} st={st} setPage={setPage} />,
+  s_schedule: <MySchedule db={db} st={st} />,
+  s_grades: <MyGrades db={db} st={st} />,
+  s_assignments: <MyAssignments db={db} st={st} setDB={setDB} />,
+  ...extra,
+});
+
+// Demo mode: no accounts, everything in this browser.
+const LocalApp = () => {
   const [db, setDB] = useState(loadDB);
   const [role, setRole] = useState('teacher');
   const [page, setPage] = useState('dashboard');
@@ -1960,30 +2063,15 @@ const App = () => {
   useEffect(() => { saveDB(db); }, [db]);
 
   const st = db.students.find(x => x.id === currentStudent);
-
-  const TeacherPages = {
-    dashboard: <Dashboard db={db} setPage={setPage} />,
-    courses: <Courses db={db} setDB={setDB} />,
-    classes: <Classes db={db} setDB={setDB} />,
-    students: <Students db={db} setDB={setDB} />,
-    attendance: <Attendance db={db} setDB={setDB} />,
-    assignments: <Assignments db={db} setDB={setDB} />,
-    matrix: <Matrix db={db} setDB={setDB} />,
-    settings: <Settings db={db} setDB={setDB} />,
-  };
-
-  const StudentPages = st ? {
-    s_home: <StudentHome db={db} st={st} setPage={setPage} />,
-    s_schedule: <MySchedule db={db} st={st} />,
-    s_grades: <MyGrades db={db} st={st} />,
-    s_assignments: <MyAssignments db={db} st={st} setDB={setDB} />,
-  } : null;
-
   let content;
   if (role === 'teacher') {
-    content = TeacherPages[page] || TeacherPages.dashboard;
+    const pages = teacherPages(db, setDB, setPage);
+    content = pages[page] || pages.dashboard;
+  } else if (st) {
+    const pages = studentPages(db, st, setDB, setPage);
+    content = pages[page] || pages.s_home;
   } else {
-    content = st ? (StudentPages[page] || StudentPages.s_home) : <PickStudent db={db} setCurrentStudent={setCurrentStudent} />;
+    content = <PickStudent db={db} setCurrentStudent={setCurrentStudent} />;
   }
 
   return (
@@ -1993,6 +2081,569 @@ const App = () => {
     </div>
   );
 };
+
+// ============================================================
+//  CLOUD MODE — accounts and shared data (on when firebase-config.js is filled in)
+// ============================================================
+const CLOUD_ON = !!AB.cloud;
+const COLLECTIONS = ['courses', 'classes', 'students', 'matrix', 'assignments', 'submissions', 'attendance'];
+const asArray = (v) => Array.isArray(v) ? v.filter(Boolean) : (v && typeof v === 'object' ? Object.values(v) : []);
+const clean = (v) => JSON.parse(JSON.stringify(v ?? null));
+// Firebase drops empty arrays and nulls, and may return arrays as objects; put the shape back.
+const normalizeDB = (raw, fallbackUser = {}) => {
+  const db = { user: { name: '', role: 'Instructor', email: '', ...fallbackUser, ...(raw?.user || {}) } };
+  COLLECTIONS.forEach(k => { db[k] = asArray(raw?.[k]); });
+  db.submissions = db.submissions.map(s => ({ score: null, submitted: false, ...s }));
+  db.attendance = db.attendance.map(h => ({ ...h, records: asArray(h.records) }));
+  return db;
+};
+const emptyDB = (user) => ({ user, ...Object.fromEntries(COLLECTIONS.map(k => [k, []])) });
+
+const AUTH_ERRORS = {
+  'auth/invalid-credential': 'Email hoặc mật khẩu không đúng.',
+  'auth/wrong-password': 'Email hoặc mật khẩu không đúng.',
+  'auth/user-not-found': 'Email hoặc mật khẩu không đúng.',
+  'auth/invalid-email': 'Email không hợp lệ.',
+  'auth/email-already-in-use': 'Email này đã có tài khoản. Hãy đăng nhập, hoặc dùng "Quên mật khẩu".',
+  'auth/weak-password': 'Mật khẩu cần ít nhất 6 ký tự.',
+  'auth/too-many-requests': 'Thử quá nhiều lần. Vui lòng đợi vài phút.',
+  'auth/popup-closed-by-user': 'Bạn đã đóng cửa sổ đăng nhập.',
+  'auth/account-exists-with-different-credential': 'Email này đã đăng ký bằng cách khác. Hãy đăng nhập bằng email và mật khẩu.',
+  'auth/unauthorized-domain': 'Tên miền này chưa được phép đăng nhập. Thêm nó vào Firebase → Authentication → Settings → Authorized domains.',
+  'auth/operation-not-allowed': 'Cách đăng nhập này chưa được bật trong Firebase → Authentication → Sign-in method.',
+};
+const authMessage = (e) => AUTH_ERRORS[e?.code] || e?.message || String(e);
+
+// Works out who the signed-in person is: teacher (listed in /teachers), student (has published views), or neither.
+const resolveRole = async (app, user) => {
+  if (!user) return { status: 'signedOut' };
+  if (!user.emailVerified) return { status: 'verify', user };
+  const db = app.database();
+  const key = AB.emailKey(user.email);
+  const teacher = (await db.ref(`teachers/${key}`).get()).val();
+  if (teacher) return { status: 'teacher', user, teacher };
+  const views = (await db.ref(`studentViews/${key}`).get()).val();
+  if (views) return { status: 'student', user };
+  const initialized = (await db.ref('initialized').get()).val();
+  return { status: initialized ? 'noAccess' : 'setup', user };
+};
+
+const useCloudAuth = () => {
+  const [state, setState] = useState({ status: 'loading' });
+  const appRef = useRef(null);
+  const resolve = async (user) => {
+    try { setState({ ...(await resolveRole(appRef.current, user)), app: appRef.current }); }
+    catch (e) { setState({ status: 'error', error: e.message, user, app: appRef.current }); }
+  };
+  useEffect(() => {
+    let off = () => {};
+    AB.getCloudApp(true)
+      .then(app => {
+        appRef.current = app;
+        app.auth().getRedirectResult().catch(e => setState({ status: 'signedOut', app, error: authMessage(e) }));
+        off = app.auth().onAuthStateChanged(resolve);
+      })
+      .catch(e => setState({ status: 'error', error: e.message }));
+    return () => off();
+  }, []);
+  // After verifying an email or being granted access: refresh the token so rules see the change.
+  const refresh = async () => {
+    const user = appRef.current.auth().currentUser;
+    if (!user) return resolve(null);
+    setState(s => ({ ...s, status: 'loading' }));
+    await user.reload();
+    await user.getIdToken(true);
+    resolve(appRef.current.auth().currentUser);
+  };
+  return { ...state, refresh, signOut: () => appRef.current.auth().signOut() };
+};
+
+const AuthCard = ({ children }) => (
+  <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="glass-strong rounded-2xl w-full max-w-md p-7 fade-in">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
+          <Icon name="graduation-cap" size={20} className="text-white" />
+        </div>
+        <div>
+          <div className="font-bold text-lg leading-tight">Edusoft</div>
+          <div className="text-[10px] text-[var(--text-3)] uppercase tracking-widest">by Hung Nguyen</div>
+        </div>
+      </div>
+      {children}
+    </div>
+  </div>
+);
+
+const LoginScreen = ({ app, initialError }) => {
+  const [mode, setMode] = useState('signin');
+  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [msg, setMsg] = useState(initialError ? { err: true, text: initialError } : null);
+  const [busy, setBusy] = useState(false);
+  const auth = app.auth();
+  const run = async (fn) => {
+    setBusy(true); setMsg(null);
+    try { await fn(); } catch (e) { setMsg({ err: true, text: authMessage(e) }); } finally { setBusy(false); }
+  };
+  const google = () => run(async () => {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    try { await auth.signInWithPopup(provider); }
+    catch (e) { if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') await auth.signInWithRedirect(provider); else throw e; }
+  });
+  const submit = (e) => {
+    e.preventDefault();
+    run(async () => {
+      if (mode === 'signin') { await auth.signInWithEmailAndPassword(form.email.trim(), form.password); return; }
+      const cred = await auth.createUserWithEmailAndPassword(form.email.trim(), form.password);
+      if (form.name.trim()) await cred.user.updateProfile({ displayName: form.name.trim() });
+      await cred.user.sendEmailVerification();
+    });
+  };
+  const reset = () => run(async () => {
+    if (!form.email.trim()) throw new Error('Nhập email trước, rồi bấm "Quên mật khẩu".');
+    await auth.sendPasswordResetEmail(form.email.trim());
+    setMsg({ err: false, text: `Đã gửi email đặt lại mật khẩu tới ${form.email.trim()}.` });
+  });
+
+  return (
+    <AuthCard>
+      <h1 className="text-xl font-bold mb-1">{mode === 'signin' ? 'Đăng nhập' : 'Tạo tài khoản'}</h1>
+      <p className="text-sm text-[var(--text-2)] mb-5">Dành cho giảng viên và sinh viên. Sinh viên dùng đúng email có trong danh sách lớp.</p>
+      <button onClick={google} disabled={busy} className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-white text-slate-900 hover:bg-slate-100 disabled:opacity-60">
+        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+        Đăng nhập bằng Google
+      </button>
+      <div className="flex items-center gap-3 my-5 text-xs text-[var(--text-3)]"><div className="flex-1 h-px bg-white/10" />hoặc<div className="flex-1 h-px bg-white/10" /></div>
+      <form onSubmit={submit}>
+        {mode === 'signup' && <Field label="Họ tên"><input className={inputClass} value={form.name} onChange={e=>setForm({...form, name: e.target.value})} autoComplete="name" /></Field>}
+        <Field label="Email"><input type="email" required className={inputClass} value={form.email} onChange={e=>setForm({...form, email: e.target.value})} autoComplete="email" /></Field>
+        <Field label="Mật khẩu"><input type="password" required minLength={6} className={inputClass} value={form.password} onChange={e=>setForm({...form, password: e.target.value})} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} /></Field>
+        {msg && <p className={`text-sm mb-3 ${msg.err ? 'text-red-300' : 'text-emerald-300'}`}>{msg.text}</p>}
+        <button type="submit" disabled={busy} className="btn-primary w-full text-white px-4 py-2.5 rounded-lg text-sm font-medium disabled:opacity-60">
+          {busy ? 'Đang xử lý…' : mode === 'signin' ? 'Đăng nhập' : 'Tạo tài khoản'}
+        </button>
+      </form>
+      <div className="flex justify-between mt-4 text-sm">
+        <button className="text-violet-300 hover:text-violet-200" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMsg(null); }}>
+          {mode === 'signin' ? 'Chưa có tài khoản? Tạo mới' : 'Đã có tài khoản? Đăng nhập'}
+        </button>
+        {mode === 'signin' && <button className="text-[var(--text-2)] hover:text-white" onClick={reset}>Quên mật khẩu?</button>}
+      </div>
+    </AuthCard>
+  );
+};
+
+const VerifyScreen = ({ user, refresh, signOut }) => {
+  const [msg, setMsg] = useState('');
+  const resend = async () => {
+    try { await user.sendEmailVerification(); setMsg('Đã gửi lại email xác minh.'); } catch (e) { setMsg(authMessage(e)); }
+  };
+  return (
+    <AuthCard>
+      <h1 className="text-xl font-bold mb-2">Xác minh email</h1>
+      <p className="text-sm text-[var(--text-2)] mb-5">Edusoft đã gửi link xác minh tới <b className="text-white">{user.email}</b>. Mở email (kiểm tra cả mục Spam), bấm link, rồi quay lại đây.</p>
+      {msg && <p className="text-sm text-emerald-300 mb-3">{msg}</p>}
+      <div className="flex flex-wrap gap-2">
+        <Btn icon="check" onClick={refresh}>Tôi đã xác minh</Btn>
+        <Btn variant="ghost" icon="mail" onClick={resend}>Gửi lại email</Btn>
+        <Btn variant="ghost" icon="log-out" onClick={signOut}>Đăng xuất</Btn>
+      </div>
+    </AuthCard>
+  );
+};
+
+const SetupScreen = ({ app, user, refresh, signOut }) => {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const claim = async () => {
+    setBusy(true); setErr('');
+    try {
+      await app.database().ref().update({
+        [`teachers/${AB.emailKey(user.email)}`]: { role: 'admin', email: user.email.toLowerCase(), name: user.displayName || '', addedAt: firebase.database.ServerValue.TIMESTAMP },
+        initialized: true,
+      });
+      await refresh();
+    } catch (e) { setErr(e.message); setBusy(false); }
+  };
+  return (
+    <AuthCard>
+      <h1 className="text-xl font-bold mb-2">Thiết lập Edusoft</h1>
+      <p className="text-sm text-[var(--text-2)] mb-5">Edusoft chưa có quản trị viên. Tài khoản <b className="text-white">{user.email}</b> sẽ thành quản trị viên đầu tiên và có quyền thêm giảng viên khác. Chỉ làm bước này một lần.</p>
+      {err && <p className="text-sm text-red-300 mb-3">{err}</p>}
+      <div className="flex flex-wrap gap-2">
+        <Btn icon="shield-check" onClick={busy ? undefined : claim}>{busy ? 'Đang thiết lập…' : 'Trở thành quản trị viên'}</Btn>
+        <Btn variant="ghost" icon="log-out" onClick={signOut}>Đăng xuất</Btn>
+      </div>
+    </AuthCard>
+  );
+};
+
+const NoAccessScreen = ({ user, refresh, signOut, error }) => (
+  <AuthCard>
+    <h1 className="text-xl font-bold mb-2">{error ? 'Có lỗi xảy ra' : 'Chưa được cấp quyền'}</h1>
+    {error
+      ? <p className="text-sm text-red-300 mb-5">{error}</p>
+      : <div className="text-sm text-[var(--text-2)] mb-5 space-y-2">
+          <p>Tài khoản <b className="text-white">{user?.email}</b> chưa có trong Edusoft.</p>
+          <p><b className="text-white">Giảng viên:</b> nhờ quản trị viên thêm email này vào mục Teachers.</p>
+          <p><b className="text-white">Sinh viên:</b> nhờ giảng viên thêm đúng email này vào danh sách lớp, hoặc đăng nhập bằng email bạn đã đưa cho giảng viên.</p>
+        </div>}
+    <div className="flex flex-wrap gap-2">
+      <Btn icon="refresh-cw" onClick={refresh}>Thử lại</Btn>
+      <Btn variant="ghost" icon="log-out" onClick={signOut}>Đăng xuất</Btn>
+    </div>
+  </AuthCard>
+);
+
+// The teacher's whole workspace lives at /data/{uid}; only changed sections are written back.
+const useCloudDB = (app, user) => {
+  const [state, setState] = useState({ db: null, empty: false, error: null });
+  const last = useRef(null);
+  const ref = useMemo(() => app.database().ref(`data/${user.uid}`), [app, user.uid]);
+  const fallbackUser = { name: user.displayName || '', role: 'Instructor', email: user.email };
+  useEffect(() => {
+    const onValue = (snap) => {
+      const v = snap.val();
+      if (!v) { last.current = null; setState({ db: null, empty: true, error: null }); return; }
+      const next = normalizeDB(v, fallbackUser);
+      last.current = next;
+      setState({ db: next, empty: false, error: null });
+    };
+    const onError = (e) => setState({ db: null, empty: false, error: e.message });
+    ref.on('value', onValue, onError);
+    return () => ref.off('value', onValue);
+  }, [ref]);
+  const setDB = (next) => {
+    const prev = last.current || {};
+    const patch = {};
+    ['user', ...COLLECTIONS].forEach(k => { if (JSON.stringify(prev[k]) !== JSON.stringify(next[k])) patch[k] = clean(next[k]); });
+    last.current = next;
+    setState(s => ({ ...s, db: next }));
+    if (Object.keys(patch).length) ref.update(patch).catch(e => alert('Could not save to the cloud: ' + e.message));
+  };
+  const init = (data) => ref.set(clean({ ...data, user: { ...fallbackUser, ...(data.user || {}), email: user.email } }));
+  return { ...state, setDB, init, getDB: () => last.current };
+};
+
+// What each student may see: their own record, class, assignments, submissions and attendance.
+const buildStudentViews = (db, teacherEmail) => {
+  const views = {};
+  db.students.forEach(st => {
+    const key = AB.emailKey(st.email);
+    if (!key.includes('@')) return;
+    const cl = db.classes.find(c => c.id === st.classId) || null;
+    const course = cl ? db.courses.find(c => c.id === cl.courseId) || null : null;
+    const mssv = AB.sanitizeId(st.studentId);
+    const attendance = db.attendance.filter(h => h.classId === st.classId).map(h => {
+      const r = h.records.find(x => x.mssv === mssv);
+      return { id: h.id, title: h.title, startedAt: h.startedAt, status: r ? r.status : 'absent', at: r?.at || null };
+    });
+    (views[key] = views[key] || {})[st.id] = clean({
+      student: st, class: cl, course,
+      assignments: db.assignments.filter(a => a.classId === st.classId),
+      submissions: db.submissions.filter(s => s.studentId === st.id),
+      attendance,
+      teacher: { name: db.user.name || '', email: teacherEmail },
+    });
+  });
+  return views;
+};
+
+const useStudentPublishing = (app, user, db) => {
+  const published = useRef(null); // path -> JSON last written
+  useEffect(() => {
+    if (!db) return;
+    const t = setTimeout(async () => {
+      try {
+        const root = app.database().ref();
+        const uid = user.uid;
+        if (!published.current) {
+          // First run: learn what exists so removed students get cleaned up.
+          const idx = (await app.database().ref(`viewIndex/${uid}`).get()).val() || {};
+          published.current = {};
+          Object.entries(idx).forEach(([k, recs]) => Object.keys(recs).forEach(r => { published.current[`${k}/${r}`] = '?'; }));
+        }
+        const views = buildStudentViews(db, user.email);
+        const patch = {}, seen = new Set();
+        Object.entries(views).forEach(([k, recs]) => Object.entries(recs).forEach(([r, v]) => {
+          const id = `${k}/${r}`, json = JSON.stringify(v);
+          seen.add(id);
+          if (published.current[id] !== json) {
+            patch[`studentViews/${k}/${uid}/${r}`] = v;
+            patch[`viewIndex/${uid}/${k}/${r}`] = true;
+            published.current[id] = json;
+          }
+        }));
+        Object.keys(published.current).forEach(id => {
+          if (seen.has(id)) return;
+          const [k, r] = id.split('/');
+          patch[`studentViews/${k}/${uid}/${r}`] = null;
+          patch[`viewIndex/${uid}/${k}/${r}`] = null;
+          delete published.current[id];
+        });
+        if (Object.keys(patch).length) await root.update(patch);
+      } catch (e) { console.error('Publishing student views failed', e); published.current = null; }
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [db]);
+};
+
+// Students mark work as submitted at /studentSubmits/{teacherUid}; fold that into the gradebook.
+const useStudentSubmits = (app, user, cloud) => {
+  useEffect(() => {
+    const ref = app.database().ref(`studentSubmits/${user.uid}`);
+    const onValue = (snap) => {
+      const flags = snap.val() || {};
+      const db = cloud.getDB();
+      if (!db) return;
+      let subs = db.submissions, changed = false;
+      Object.entries(flags).forEach(([recordId, byAssignment]) => {
+        const st = db.students.find(s => s.id === recordId);
+        if (!st) return;
+        Object.entries(byAssignment || {}).forEach(([assignmentId, f]) => {
+          if (f?.email !== (st.email || '').trim().toLowerCase()) return;
+          if (!db.assignments.some(a => a.id === assignmentId && a.classId === st.classId)) return;
+          const existing = subs.find(s => s.studentId === recordId && s.assignmentId === assignmentId);
+          if (existing?.submitted) return;
+          changed = true;
+          subs = existing
+            ? subs.map(s => s === existing ? { ...s, submitted: true } : s)
+            : [...subs, { id: uid(), studentId: recordId, assignmentId, score: null, submitted: true }];
+        });
+      });
+      if (changed) cloud.setDB({ ...db, submissions: subs });
+    };
+    ref.on('value', onValue);
+    return () => ref.off('value', onValue);
+  }, [cloud.db === null]);
+};
+
+const FirstRun = ({ user, init }) => {
+  const local = (() => { try { return JSON.parse(localStorage.getItem(DB_KEY) || localStorage.getItem(LEGACY_DB_KEY)); } catch { return null; } })();
+  const [busy, setBusy] = useState(false);
+  const me = { name: user.displayName || '', role: 'Instructor', email: user.email };
+  const go = async (data) => { setBusy(true); try { await init(data); } catch (e) { alert(e.message); setBusy(false); } };
+  return (
+    <AuthCard>
+      <h1 className="text-xl font-bold mb-2">Bắt đầu</h1>
+      <p className="text-sm text-[var(--text-2)] mb-5">Tài khoản giảng viên của bạn chưa có dữ liệu trên cloud. Chọn cách bắt đầu:</p>
+      <div className="space-y-2">
+        {local && (
+          <button disabled={busy} onClick={() => go(normalizeDB(local, me))} className="w-full text-left p-3 rounded-lg bg-violet-500/15 hover:bg-violet-500/25 border border-violet-400/30">
+            <div className="font-semibold text-sm">Tải dữ liệu từ trình duyệt này lên</div>
+            <div className="text-xs text-[var(--text-2)]">{asArray(local.classes).length} lớp, {asArray(local.students).length} sinh viên, {asArray(local.attendance).length} buổi điểm danh đang lưu trên máy này.</div>
+          </button>
+        )}
+        <button disabled={busy} onClick={() => go(emptyDB(me))} className="w-full text-left p-3 rounded-lg bg-white/5 hover:bg-white/10">
+          <div className="font-semibold text-sm">Bắt đầu trống</div>
+          <div className="text-xs text-[var(--text-2)]">Tự tạo môn học, lớp và danh sách sinh viên.</div>
+        </button>
+        <button disabled={busy} onClick={() => go({ ...seed(), user: me })} className="w-full text-left p-3 rounded-lg bg-white/5 hover:bg-white/10">
+          <div className="font-semibold text-sm">Dùng dữ liệu mẫu</div>
+          <div className="text-xs text-[var(--text-2)]">Để xem thử. Có thể xóa sau ở Settings.</div>
+        </button>
+      </div>
+    </AuthCard>
+  );
+};
+
+const TeachersAdmin = ({ app, me }) => {
+  const [list, setList] = useState(null);
+  const [form, setForm] = useState({ email: '', name: '', role: 'teacher' });
+  const [err, setErr] = useState('');
+  const myKey = AB.emailKey(me.email);
+  useEffect(() => {
+    const ref = app.database().ref('teachers');
+    const onValue = s => setList(s.val() || {});
+    ref.on('value', onValue, e => setErr(e.message));
+    return () => ref.off('value', onValue);
+  }, []);
+  const add = async (e) => {
+    e.preventDefault(); setErr('');
+    const email = form.email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setErr('Invalid email.'); return; }
+    try {
+      await app.database().ref(`teachers/${AB.emailKey(email)}`).set({ email, name: form.name.trim(), role: form.role, addedAt: firebase.database.ServerValue.TIMESTAMP });
+      setForm({ email: '', name: '', role: 'teacher' });
+    } catch (e2) { setErr(e2.message); }
+  };
+  const setRole = (key, t, role) => app.database().ref(`teachers/${key}`).set({ ...t, role }).catch(e => setErr(e.message));
+  const remove = (key, t) => { if (confirm(`Remove ${t.email}? They will lose access to Edusoft. Their data is kept.`)) app.database().ref(`teachers/${key}`).remove().catch(e => setErr(e.message)); };
+  const rows = Object.entries(list || {}).sort((a, b) => (a[1].name || a[1].email).localeCompare(b[1].name || b[1].email));
+  return (
+    <div className="space-y-4 max-w-4xl fade-in">
+      <div>
+        <h1 className="text-2xl font-bold">Teachers</h1>
+        <p className="text-[var(--text-2)] text-sm mt-1">People listed here can sign in as teachers. Each teacher only sees their own courses, classes and students.</p>
+      </div>
+      <form onSubmit={add} className="glass rounded-2xl p-5 grid grid-cols-1 md:grid-cols-[1fr_1fr_140px_auto] gap-3 items-end">
+        <Field label="Email"><input type="email" required className={inputClass} value={form.email} onChange={e=>setForm({...form, email: e.target.value})} placeholder="teacher@school.edu" /></Field>
+        <Field label="Name"><input className={inputClass} value={form.name} onChange={e=>setForm({...form, name: e.target.value})} /></Field>
+        <Field label="Role">
+          <select className={inputClass} value={form.role} onChange={e=>setForm({...form, role: e.target.value})}>
+            <option value="teacher">Teacher</option><option value="admin">Admin</option>
+          </select>
+        </Field>
+        <div className="mb-3"><Btn type="submit" icon="user-plus">Add teacher</Btn></div>
+      </form>
+      {err && <p className="text-sm text-red-300">{err}</p>}
+      <div className="glass rounded-2xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="text-xs uppercase tracking-wider text-[var(--text-3)]">
+            <tr><th className="text-left px-5 py-2.5">Name</th><th className="text-left px-3 py-2.5">Email</th><th className="text-left px-3 py-2.5">Role</th><th className="px-5 py-2.5 text-right">Actions</th></tr>
+          </thead>
+          <tbody>
+            {list === null && <tr><td colSpan="4" className="px-5 py-8 text-center text-[var(--text-3)]">Loading…</td></tr>}
+            {rows.map(([key, t]) => (
+              <tr key={key} className="border-t border-[var(--border-2)] row-hover">
+                <td className="px-5 py-2.5">{t.name || <span className="text-[var(--text-3)]">—</span>}{key === myKey && <span className="badge heat-2 ml-2">You</span>}</td>
+                <td className="px-3 py-2.5 text-[var(--text-2)]">{t.email}</td>
+                <td className="px-3 py-2.5">
+                  {key === myKey ? <span className="badge heat-1">Admin</span> : (
+                    <select value={t.role} onChange={e => setRole(key, t, e.target.value)} className="px-2 py-1 rounded-md text-xs">
+                      <option value="teacher">Teacher</option><option value="admin">Admin</option>
+                    </select>
+                  )}
+                </td>
+                <td className="px-5 py-2.5 text-right">
+                  {key !== myKey && <button title="Remove" onClick={() => remove(key, t)} className="p-1.5 rounded-md text-[var(--text-2)] hover:text-red-400 hover:bg-white/10"><Icon name="trash-2" size={15} /></button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const TeacherCloudApp = ({ auth }) => {
+  const { app, user, teacher } = auth;
+  const cloud = useCloudDB(app, user);
+  const [page, setPage] = useState('dashboard');
+  useStudentPublishing(app, user, cloud.db);
+  useStudentSubmits(app, user, cloud);
+
+  if (cloud.error) return <NoAccessScreen user={user} refresh={auth.refresh} signOut={auth.signOut} error={cloud.error} />;
+  if (cloud.empty) return <FirstRun user={user} init={cloud.init} />;
+  if (!cloud.db) return <div className="min-h-screen flex items-center justify-center text-[var(--text-2)]">Loading your workspace…</div>;
+
+  const isAdmin = teacher.role === 'admin';
+  const pages = teacherPages(cloud.db, cloud.setDB, setPage, isAdmin ? { teachers: <TeachersAdmin app={app} me={user} /> } : {});
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar page={page} setPage={setPage} role="teacher" setRole={() => {}} db={cloud.db} cloud={{ user, isAdmin, onSignOut: auth.signOut }} />
+      <main className="flex-1 p-8 max-w-[1600px] mx-auto">{pages[page] || pages.dashboard}</main>
+    </div>
+  );
+};
+
+const MyAttendance = ({ sessions }) => {
+  const present = sessions.filter(s => s.status === 'valid').length;
+  return (
+    <div className="space-y-4 fade-in">
+      <div>
+        <h1 className="text-2xl font-bold">My Attendance</h1>
+        <p className="text-[var(--text-2)] text-sm mt-1">{sessions.length ? `Present at ${present} of ${sessions.length} sessions` : 'No attendance sessions yet.'}</p>
+      </div>
+      <div className="glass rounded-2xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="text-xs uppercase tracking-wider text-[var(--text-3)]">
+            <tr><th className="text-left px-5 py-2.5">Date</th><th className="text-left px-3 py-2.5">Class</th><th className="text-left px-3 py-2.5">Check-in</th><th className="text-left px-3 py-2.5">Status</th></tr>
+          </thead>
+          <tbody>
+            {sessions.length === 0 && <tr><td colSpan="4" className="px-5 py-10 text-center text-[var(--text-3)]">Nothing here yet.</td></tr>}
+            {sessions.map(s => (
+              <tr key={s.id} className="border-t border-[var(--border-2)]">
+                <td className="px-5 py-2.5">{fmtDate(s.startedAt)}</td>
+                <td className="px-3 py-2.5">{s.title}</td>
+                <td className="px-3 py-2.5 text-[var(--text-2)] tabular-nums">{fmtTime(s.at)}</td>
+                <td className="px-3 py-2.5"><span className={'badge ' + STATUS_STYLE[s.status]}>{STATUS_LABEL[s.status]}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const StudentCloudApp = ({ auth }) => {
+  const { app, user } = auth;
+  const [views, setViews] = useState(null);
+  const [sel, setSel] = useState(0);
+  const [page, setPage] = useState('s_home');
+  const [submitted, setSubmitted] = useState({}); // assignmentId -> true, from this student's own submit flags
+  useEffect(() => {
+    const ref = app.database().ref(`studentViews/${AB.emailKey(user.email)}`);
+    const onValue = s => setViews(s.val() || {});
+    ref.on('value', onValue);
+    return () => ref.off('value', onValue);
+  }, []);
+  const records = useMemo(() => Object.entries(views || {}).flatMap(([teacherUid, recs]) =>
+    Object.entries(recs || {}).map(([recordId, view]) => ({ teacherUid, recordId, view }))), [views]);
+  const r = records[Math.min(sel, records.length - 1)];
+  const flagPath = r ? `studentSubmits/${r.teacherUid}/${r.recordId}` : '';
+  useEffect(() => {
+    if (!flagPath) return;
+    const ref = app.database().ref(flagPath);
+    const onValue = s => setSubmitted(Object.fromEntries(Object.keys(s.val() || {}).map(k => [k, true])));
+    ref.on('value', onValue, () => setSubmitted({}));
+    return () => ref.off('value', onValue);
+  }, [flagPath]);
+
+  if (!views) return <div className="min-h-screen flex items-center justify-center text-[var(--text-2)]">Loading…</div>;
+  if (!r) return <NoAccessScreen user={user} refresh={auth.refresh} signOut={auth.signOut} />;
+  const sessions = asArray(r.view.attendance).sort((a, b) => b.startedAt - a.startedAt);
+  const st = { ...r.view.student };
+  if (sessions.length) st.attendance = Math.round(sessions.filter(s => s.status === 'valid').length / sessions.length * 100);
+  const submissions = asArray(r.view.submissions).map(s => ({ score: null, submitted: false, ...s }));
+  Object.keys(submitted).forEach(aid => {
+    const ex = submissions.find(s => s.assignmentId === aid);
+    if (ex) ex.submitted = true; else submissions.push({ id: 'f-' + aid, studentId: st.id, assignmentId: aid, score: null, submitted: true });
+  });
+  const db = {
+    user: { name: st.name }, courses: r.view.course ? [r.view.course] : [], classes: r.view.class ? [r.view.class] : [],
+    students: [st], assignments: asArray(r.view.assignments), submissions, matrix: [], attendance: [],
+  };
+  // MyAssignments "Submit" calls setDB; turn newly submitted items into submit flags for the teacher.
+  const setDB = (next) => {
+    next.submissions.forEach(s => {
+      const before = db.submissions.find(x => x.assignmentId === s.assignmentId);
+      if (s.submitted && !before?.submitted) {
+        app.database().ref(`${flagPath}/${s.assignmentId}`)
+          .set({ at: firebase.database.ServerValue.TIMESTAMP, email: user.email.toLowerCase() })
+          .catch(e => alert('Could not submit: ' + e.message));
+      }
+    });
+  };
+  const pages = studentPages(db, st, setDB, setPage, { s_attendance: <MyAttendance sessions={sessions} /> });
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar page={page} setPage={setPage} role="student" setRole={() => {}} db={db} currentStudent={st.id} setCurrentStudent={() => {}}
+        cloud={{ user, isAdmin: false, onSignOut: auth.signOut, records, sel, setSel: (i) => { setSel(i); setPage('s_home'); } }} />
+      <main className="flex-1 p-8 max-w-[1600px] mx-auto">{pages[page] || pages.s_home}</main>
+    </div>
+  );
+};
+
+const CloudApp = () => {
+  const auth = useCloudAuth();
+  const loading = <div className="min-h-screen flex items-center justify-center text-[var(--text-2)]">Loading…</div>;
+  switch (auth.status) {
+    case 'loading': return loading;
+    case 'signedOut': return <LoginScreen app={auth.app} initialError={auth.error} />;
+    case 'verify': return <VerifyScreen user={auth.user} refresh={auth.refresh} signOut={auth.signOut} />;
+    case 'setup': return <SetupScreen app={auth.app} user={auth.user} refresh={auth.refresh} signOut={auth.signOut} />;
+    case 'teacher': return <TeacherCloudApp key={auth.user.uid} auth={auth} />;
+    case 'student': return <StudentCloudApp key={auth.user.uid} auth={auth} />;
+    case 'error': return auth.app ? <NoAccessScreen user={auth.user} refresh={auth.refresh} signOut={auth.signOut} error={auth.error} /> : <AuthCard><p className="text-red-300 text-sm">{auth.error}</p></AuthCard>;
+    default: return <NoAccessScreen user={auth.user} refresh={auth.refresh} signOut={auth.signOut} />;
+  }
+};
+
+const App = () => (CLOUD_ON ? <CloudApp /> : <LocalApp />);
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>

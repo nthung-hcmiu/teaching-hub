@@ -37,40 +37,61 @@ Anti-cheating rules (checked on the teacher's screen; the signing secret never l
 - One phone can check in only one MSSV per session.
 - MSSVs not on the class roster are marked **Needs review**. The teacher can approve, reject, or mark absent students present by hand.
 
-### Connect Firebase (required for real phones)
-Without a backend, attendance runs in demo mode: it only works between tabs of the same browser (good for trying it out with **Open as student**).
+## Modes
+Edusoft runs in one of two modes, chosen by `firebase-config.js`:
 
-1. Go to <https://console.firebase.google.com> → **Add project** (free Spark plan is enough).
-2. **Build → Realtime Database → Create database** (pick a region, e.g. `asia-southeast1`), start in locked mode.
-3. Open the **Rules** tab and paste:
-   ```json
-   {
-     "rules": {
-       "att": {
-         "$sid": {
-           ".read": true,
-           "meta": { ".write": true },
-           "verdicts": { ".write": true },
-           "scans":    { "$id": { ".write": "!data.exists()", ".validate": "newData.child('at').val() === now" } },
-           "checkins": { "$id": { ".write": "!data.exists()", ".validate": "newData.child('at').val() === now" } }
-         }
-       }
-     }
-   }
-   ```
-   The `=== now` rules force server timestamps, so a phone cannot fake when it scanned.
-4. Copy the database URL (e.g. `https://my-class-default-rtdb.asia-southeast1.firebasedatabase.app`) into **Settings → Attendance backend** and click **Save & test**.
+| | Demo mode (`EDUSOFT_FIREBASE_CONFIG = null`) | Accounts mode (config filled in) |
+|---|---|---|
+| Sign-in | None | Google or email + password |
+| Teachers | One, in one browser | Many; the admin adds them by email |
+| Students | Demo "Student" switch only | Real portal: own grades, assignments, attendance |
+| Data | This browser's `localStorage` | Firebase Realtime Database, synced across devices |
+| QR attendance | Same browser only, or a Database URL in Settings | Works on any phone |
 
-The QR link carries the database URL, so students need nothing installed. The roster and history stay in the teacher's browser; only live check-in data goes to Firebase.
+### Turn on accounts mode
+1. **Create the database** (skip if you already have one): <https://console.firebase.google.com> → your project → **Build → Realtime Database → Create database** (region e.g. `asia-southeast1`).
+2. **Publish the rules**: Realtime Database → **Rules** → replace everything with the contents of [`database.rules.json`](database.rules.json) → **Publish**.
+3. **Enable sign-in**: **Build → Authentication → Get started → Sign-in method** → enable **Google** and **Email/Password**.
+4. **Allow your site**: Authentication → **Settings → Authorized domains → Add domain** → `nthung-hcmiu.github.io`.
+5. **Get the web config**: **Project settings** (gear icon) → **Your apps** → **Web** (`</>`) → register an app (no hosting needed) → copy the `firebaseConfig` object.
+6. **Paste it** into `firebase-config.js` as `window.EDUSOFT_FIREBASE_CONFIG = { ... }`, make sure `databaseURL` is included, commit and push. These values are public by design; the rules protect the data.
+7. **Become admin**: open the site, sign in, and click **Trở thành quản trị viên**. The first account to do this is the admin, so do it right after deploying.
+8. **Bring your data**: on the next screen choose **Tải dữ liệu từ trình duyệt này lên** to upload what this browser has stored (classes, students, attendance history). Do this in the browser you used before.
+
+Then add teachers under **Teachers**, and give each class a roster with student emails (**Students → Import list**, paste MSSV / Name / Email columns from Excel). A student signs in with that exact email and sees only their own records. Email + password accounts must verify their email before they get any access.
+
+Tip for students: if a link is opened inside Zalo or Facebook, Google sign-in may be blocked by the in-app browser. Open the link in Chrome or Safari, or use email + password.
+
+### Who can do what (enforced by `database.rules.json`)
+- **Admin**: everything a teacher can, plus add/remove teachers. Cannot read other teachers' data.
+- **Teacher**: reads and writes only their own workspace; runs attendance sessions they own.
+- **Student**: reads only the records a teacher published for their email; can mark their own assignments as submitted.
+- **Anyone with the QR**: can check in to an open session; cannot read other check-ins or change verdicts.
+
+### Attendance only, without accounts
+If you only want QR attendance and keep `firebase-config.js` as `null`, publish these simpler rules instead and paste the Database URL into **Settings → Attendance backend**:
+```json
+{
+  "rules": {
+    "att": {
+      "$sid": {
+        ".read": true,
+        "meta": { ".write": true },
+        "verdicts": { ".write": true },
+        "scans":    { "$id": { ".write": "!data.exists()", ".validate": "newData.child('at').val() === now" } },
+        "checkins": { "$id": { ".write": "!data.exists()", ".validate": "newData.child('at').val() === now" } }
+      }
+    }
+  }
+}
+```
 
 ## Stack
-- Single HTML file
-- React 18 + Tailwind CSS + Lucide icons (all via CDN)
-- `localStorage` as a demo database
-- `checkin.html` + `attendance-backend.js`: lightweight student check-in page (plain JS, loads fast on phones), Firebase Realtime Database for live attendance
-
-## Limitations
-This is a **single-file static demo**. Data lives in the visitor's browser only — there is no multi-user backend. To deploy for a real class, port the storage layer to Supabase or Firebase.
+- `index.html`: React 18 + Tailwind CSS + Lucide icons (all via CDN), compiled in the browser
+- `checkin.html` (student check-in) and `present.html` (QR window): plain JS, fast on phones and projectors
+- `attendance-backend.js`: shared Firebase / localStorage layer, rotating QR tokens
+- `firebase-config.js` + `database.rules.json`: accounts mode
+- Firebase Authentication + Realtime Database (free Spark plan is enough for a few teachers)
 
 ## How to deploy on GitHub Pages
 1. Create a new public GitHub repo named `teaching-hub`
