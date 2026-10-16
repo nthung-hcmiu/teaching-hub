@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#1a1a2e" />
-<title>Điểm danh</title>
+<title>Điểm danh · Edusoft</title>
 <style>
   :root {
     --bg-0: #0f0f1e; --bg-1: #1a1a2e; --bg-2: #232342;
@@ -59,6 +59,7 @@
   .spinner { width: 34px; height: 34px; margin: 0 auto 10px; border-radius: 50%; border: 3px solid rgba(196, 181, 253, .25); border-top-color: #c4b5fd; animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .hidden { display: none; }
+  .brand { position: fixed; left: 0; right: 0; bottom: 16px; margin: 0; text-align: center; color: var(--text-3); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
 </style>
 </head>
 <body>
@@ -66,6 +67,7 @@
   <div class="logo">✓</div>
   <h1>Điểm danh</h1>
   <p class="sub" id="title">Đang kết nối…</p>
+  <p class="brand">Edusoft</p>
 
   <form id="form" class="hidden" autocomplete="off">
     <label for="mssv">Mã số sinh viên</label>
