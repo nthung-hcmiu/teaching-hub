@@ -12,4 +12,10 @@
 //   projectId: "your-project",
 //   appId: "1:1234567890:web:abcdef",
 // };
-window.EDUSOFT_FIREBASE_CONFIG = null;
+window.EDUSOFT_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDYcUg6RGcsmFfQxLP0z0ZA66lRou4ZkBg",
+  authDomain: "diem-danh-89ebc.firebaseapp.com",
+  databaseURL: "https://diem-danh-89ebc-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "diem-danh-89ebc",
+  appId: "1:965624032900:web:fd1db51d7b5f68c1f61cd1",
+};
