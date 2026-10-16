@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#1a1a2e" />
-<title>Denny Teaching Hub — Clone</title>
+<title>Edusoft</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -102,9 +102,11 @@ const { useState, useEffect, useMemo, useRef } = React;
 // ============================================================
 //  DATABASE LAYER — localStorage with seed data
 // ============================================================
-const DB_KEY = 'denny_teaching_hub_v2';
+const DB_KEY = 'edusoft_v1';
+const LEGACY_DB_KEY = 'denny_teaching_hub_v2';
+const OWNER = { name: 'Hung Nguyen', role: 'Instructor', email: 'hung.nguyen@example.com' };
 const seed = () => ({
-  user: { name: 'Denny Nguyen', role: 'Instructor', email: 'denny@dennynguyen.online' },
+  user: { ...OWNER },
   courses: [
     { id: 'c1', code: 'MKT301', name: 'Principles of Marketing', credits: 3, dept: 'Marketing', term: 'Fall 2026', status: 'Active' },
     { id: 'c2', code: 'MKT420', name: 'Consumer Behavior', credits: 3, dept: 'Marketing', term: 'Fall 2026', status: 'Active' },
@@ -173,7 +175,16 @@ const seed = () => ({
 
 const loadDB = () => {
   try {
-    const raw = localStorage.getItem(DB_KEY);
+    let raw = localStorage.getItem(DB_KEY);
+    // Carry over data saved before the Edusoft rename.
+    const legacy = !raw && localStorage.getItem(LEGACY_DB_KEY);
+    if (legacy) {
+      const old = JSON.parse(legacy);
+      if (old.user?.name === 'Denny Nguyen') old.user = { ...OWNER };
+      localStorage.setItem(DB_KEY, JSON.stringify(old));
+      localStorage.removeItem(LEGACY_DB_KEY);
+      raw = JSON.stringify(old);
+    }
     if (!raw) {
       const s = seed();
       localStorage.setItem(DB_KEY, JSON.stringify(s));
@@ -298,8 +309,8 @@ const Sidebar = ({ page, setPage, role, setRole, db, currentStudent, setCurrentS
             <Icon name="graduation-cap" size={20} className="text-white" />
           </div>
           <div>
-            <div className="font-bold text-base leading-tight">Teaching Hub</div>
-            <div className="text-[10px] text-[var(--text-3)] uppercase tracking-widest">Denny edition</div>
+            <div className="font-bold text-base leading-tight">Edusoft</div>
+            <div className="text-[10px] text-[var(--text-3)] uppercase tracking-widest">by Hung Nguyen</div>
           </div>
         </div>
       </div>
@@ -1361,7 +1372,7 @@ const Settings = ({ db, setDB }) => {
     const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'teaching-hub-export.json'; a.click();
+    a.href = url; a.download = 'edusoft-export.json'; a.click();
     URL.revokeObjectURL(url);
   };
   const importJson = (e) => {
@@ -1387,9 +1398,14 @@ const Settings = ({ db, setDB }) => {
     setFbStatus('Testing connection…');
     try {
       const b = await AB.connect(url);
-      await b.set('att/_ping', { at: b.stamp() });
+      // Same path shape a real session writes, so the README rules allow it.
+      await b.set('att/_ping/meta', { title: 'Connection test', status: 'closed', startedAt: b.stamp() });
+      await b.get('att/_ping/meta');
       setFbStatus('Connected. Students can now check in from their phones.');
-    } catch (e) { setFbStatus('Saved, but the test failed: ' + e.message); }
+    } catch (e) {
+      const hint = /permission/i.test(e.message) ? ' Check that the rules from the README are pasted in the Rules tab and published.' : '';
+      setFbStatus('Saved, but the test failed: ' + e.message + hint);
+    }
   };
 
   return (
@@ -1435,7 +1451,7 @@ const Settings = ({ db, setDB }) => {
 
       <div className="glass rounded-2xl p-5">
         <h3 className="font-semibold mb-2">About</h3>
-        <p className="text-sm text-[var(--text-2)]">Teaching Hub — vibe-coded clone of <code className="text-violet-300">study.dennynguyen.online</code>. Single HTML, React + Tailwind via CDN, all CRUD persists locally.</p>
+        <p className="text-sm text-[var(--text-2)]">Edusoft by Hung Nguyen. Teaching management hub for instructors and students. Single HTML, React + Tailwind via CDN, all CRUD persists locally.</p>
       </div>
     </div>
   );

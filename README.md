@@ -1,10 +1,10 @@
-# Denny Teaching Hub
+# Edusoft
 
-A vibe-coded clone of [study.dennynguyen.online](https://study.dennynguyen.online/) — a teaching management hub for instructors and students.
+A teaching management hub for instructors and students, by Hung Nguyen.
 
 ## Live demo
 Once deployed on GitHub Pages, it will be available at:
-`https://<your-github-username>.github.io/teaching-hub/`
+`https://nthung-hcmiu.github.io/teaching-hub/`
 
 ## Features
 
