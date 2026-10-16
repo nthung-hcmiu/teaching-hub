@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#1a1a2e" />
+<title>Điểm danh</title>
+<style>
+  :root {
+    --bg-0: #0f0f1e; --bg-1: #1a1a2e; --bg-2: #232342;
+    --accent: #8b5cf6; --accent-2: #6366f1;
+    --text-1: #f1f5f9; --text-2: #94a3b8; --text-3: #64748b;
+    --border: rgba(139, 92, 246, 0.2);
+    --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(800px 400px at 80% -10%, rgba(139, 92, 246, 0.22), transparent 60%),
+      var(--bg-0);
+    color: var(--text-1);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 32px 16px;
+  }
+  .card {
+    width: 100%; max-width: 420px;
+    background: linear-gradient(180deg, rgba(35, 35, 66, 0.85), rgba(26, 26, 46, 0.85));
+    border: 1px solid var(--border); border-radius: 20px;
+    padding: 28px 22px; text-align: center;
+  }
+  .logo {
+    width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 14px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex; align-items: center; justify-content: center; font-size: 28px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--text-2); font-size: 14px; margin: 0 0 22px; }
+  label { display: block; text-align: left; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 14px; font-size: 20px; letter-spacing: .08em; text-transform: uppercase; text-align: center;
+    background: var(--bg-1); color: var(--text-1); border: 1px solid var(--border); border-radius: 12px; outline: none;
+  }
+  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 246, .2); }
+  button {
+    width: 100%; margin-top: 14px; padding: 14px; font-size: 16px; font-weight: 600; color: #fff; border: 0; border-radius: 12px; cursor: pointer;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  .status { margin-top: 4px; padding: 18px; border-radius: 14px; font-size: 15px; line-height: 1.5; }
+  .status .big { font-size: 40px; line-height: 1; margin-bottom: 8px; }
+  .status b { display: block; font-size: 18px; margin-bottom: 4px; }
+  .ok { background: rgba(16, 185, 129, .14); color: #6ee7b7; }
+  .warn { background: rgba(245, 158, 11, .14); color: #fcd34d; }
+  .err { background: rgba(239, 68, 68, .14); color: #fca5a5; }
+  .wait { background: rgba(139, 92, 246, .12); color: #c4b5fd; }
+  .hint { color: var(--text-3); font-size: 12px; margin-top: 14px; }
+  .spinner { width: 34px; height: 34px; margin: 0 auto 10px; border-radius: 50%; border: 3px solid rgba(196, 181, 253, .25); border-top-color: #c4b5fd; animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">✓</div>
+  <h1>Điểm danh</h1>
+  <p class="sub" id="title">Đang kết nối…</p>
+
+  <form id="form" class="hidden" autocomplete="off">
+    <label for="mssv">Mã số sinh viên</label>
+    <input id="mssv" inputmode="text" autocapitalize="characters" spellcheck="false" placeholder="VD: ITITIU21001" required />
+    <button id="submit" type="submit">Điểm danh</button>
+  </form>
+
+  <div id="status" class="status hidden"></div>
+  <p class="hint" id="hint"></p>
+</div>
+
+<script src="attendance-backend.js"></script>
+<script>
+(function () {
+  const AB = window.AttendanceBackend;
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  const sid = AB.sanitizeId(params.get('s')).toLowerCase();
+  const token = (params.get('k') || '').trim();
+  const fb = params.get('fb') || '';
+  const LAST_MSSV = 'teaching_hub_last_mssv';
+  const ss = {
+    get: (k) => { try { return JSON.parse(sessionStorage.getItem(k)); } catch { return null; } },
+    set: (k, v) => { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    del: (k) => { try { sessionStorage.removeItem(k); } catch {} },
+  };
+
+  // Verdict codes are written by the instructor's screen.
+  const MESSAGES = {
+    ok:      ['ok',   '🎉', 'Điểm danh thành công'],
+    manual:  ['ok',   '🎉', 'Giảng viên đã xác nhận có mặt'],
+    roster:  ['warn', '⏳', 'Đã ghi nhận, chờ giảng viên duyệt', 'MSSV này chưa có trong danh sách lớp.'],
+    expired: ['err',  '⌛', 'Mã QR đã hết hạn', 'Hãy quét lại mã QR đang hiển thị trên màn hình.'],
+    slow:    ['err',  '⌛', 'Quá thời gian gửi', 'Hãy quét lại mã QR đang hiển thị trên màn hình.'],
+    device:  ['err',  '📵', 'Thiết bị này đã điểm danh cho MSSV khác', 'Mỗi điện thoại chỉ điểm danh cho một sinh viên.'],
+    invalid: ['err',  '⚠️', 'Mã QR không hợp lệ', 'Hãy quét lại mã QR đang hiển thị trên màn hình.'],
+    rejected:['err',  '✕',  'Giảng viên đã từ chối lượt điểm danh này'],
+  };
+
+  const show = (cls, icon, title, body = '', spinner = false) => {
+    const el = $('status');
+    el.className = 'status ' + cls;
+    el.innerHTML = (spinner ? '<div class="spinner"></div>' : `<div class="big">${icon}</div>`) +
+      `<b>${title}</b>` + (body ? `<span>${body}</span>` : '');
+  };
+  const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fatal = (title, body) => { $('form').classList.add('hidden'); show('err', '⚠️', title, body); $('hint').textContent = ''; };
+
+  if (!sid || !token) {
+    $('title').textContent = 'Thiếu thông tin phiên điểm danh';
+    show('warn', '📷', 'Hãy quét mã QR', 'Dùng camera điện thoại quét mã QR giảng viên chiếu trên màn hình lớp.');
+    return;
+  }
+
+  let backend, scanId, stopVerdict = null, pendingTimer = null;
+  const scanKey = `scan_${sid}_${token}`;
+  const attemptKey = `attempt_${sid}_${token}`;
+
+  const watchVerdict = (attempt) => {
+    $('form').classList.add('hidden');
+    show('wait', '', 'Đang chờ xác nhận…', `MSSV <b style="display:inline;font-size:inherit">${esc(attempt.mssv)}</b>`, true);
+    clearTimeout(pendingTimer);
+    pendingTimer = setTimeout(() => {
+      $('hint').textContent = 'Lượt điểm danh sẽ được xác nhận khi màn hình điểm danh của giảng viên đang mở.';
+    }, 15000);
+    if (stopVerdict) stopVerdict();
+    stopVerdict = backend.on(`att/${sid}/verdicts/${attempt.attemptId}`, (v) => {
+      if (!v) return;
+      clearTimeout(pendingTimer);
+      const m = MESSAGES[v.code] || MESSAGES.invalid;
+      const who = v.name ? `${esc(v.name)} · ${esc(attempt.mssv)}` : esc(attempt.mssv);
+      const body = [m[3], who].filter(Boolean).join('<br>');
+      show(m[0], m[1], m[2], body);
+      $('hint').textContent = v.status === 'rejected' ? '' : 'Bạn có thể đóng trang này.';
+    });
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const mssv = AB.sanitizeId($('mssv').value);
+    if (mssv.length < 3) { $('hint').textContent = 'MSSV không hợp lệ.'; return; }
+    $('submit').disabled = true;
+    try {
+      const attemptId = AB.randomId(14);
+      await backend.set(`att/${sid}/checkins/${attemptId}`, {
+        mssv, scanId, k: token, dev: AB.deviceId(), at: backend.stamp(),
+      });
+      try { localStorage.setItem(LAST_MSSV, mssv); } catch {}
+      const attempt = { attemptId, mssv };
+      ss.set(attemptKey, attempt);
+      watchVerdict(attempt);
+    } catch (err) {
+      $('submit').disabled = false;
+      $('hint').textContent = 'Gửi thất bại: ' + err.message;
+    }
+  };
+
+  (async () => {
+    try {
+      backend = await AB.connect(fb);
+    } catch (err) { $('title').textContent = 'Lỗi kết nối'; fatal('Không kết nối được máy chủ', esc(err.message)); return; }
+
+    // Record the scan time first: the instructor checks it against the QR's 10s window.
+    scanId = ss.get(scanKey);
+    try {
+      if (!scanId) {
+        scanId = AB.randomId(14);
+        await backend.set(`att/${sid}/scans/${scanId}`, { k: token, dev: AB.deviceId(), at: backend.stamp() });
+        ss.set(scanKey, scanId);
+      }
+    } catch (err) { fatal('Không ghi nhận được lượt quét', esc(err.message)); return; }
+
+    let ready = false;
+    backend.on(`att/${sid}/meta`, (meta) => {
+      if (!meta) { $('title').textContent = ''; fatal('Phiên điểm danh không tồn tại', 'Hãy quét lại mã QR trên màn hình lớp.'); return; }
+      $('title').textContent = meta.title || 'Lớp học';
+      if (meta.status !== 'open') {
+        const done = ss.get(attemptKey);
+        if (!done) fatal('Phiên điểm danh đã kết thúc', 'Liên hệ giảng viên nếu bạn có mặt nhưng chưa điểm danh.');
+        return;
+      }
+      if (ready) return;
+      ready = true;
+      const done = ss.get(attemptKey);
+      if (done) { watchVerdict(done); return; }
+      $('form').classList.remove('hidden');
+      try { $('mssv').value = localStorage.getItem(LAST_MSSV) || ''; } catch {}
+      $('mssv').focus();
+    });
+  })();
+
+  $('form').addEventListener('submit', submit);
+})();
+</script>
+</body>
+</html>

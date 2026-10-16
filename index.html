@@ -10,6 +10,8 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="attendance-backend.js"></script>
 <style>
   :root {
     --bg-0: #0f0f1e;
@@ -268,6 +270,7 @@ const TEACHER_NAV = [
   { key: 'courses', label: 'Courses', icon: 'book-open' },
   { key: 'classes', label: 'Classes', icon: 'users' },
   { key: 'students', label: 'Students', icon: 'graduation-cap' },
+  { key: 'attendance', label: 'Attendance', icon: 'qr-code' },
   { key: 'assignments', label: 'Assignments', icon: 'clipboard-list' },
   { key: 'matrix', label: 'ACBSP Matrix', icon: 'grid-3x3' },
   { key: 'settings', label: 'Settings', icon: 'settings' },
@@ -907,6 +910,443 @@ const Matrix = ({ db, setDB }) => {
 };
 
 // ============================================================
+//  ATTENDANCE — rotating QR check-in (student page: checkin.html)
+// ============================================================
+const AB = window.AttendanceBackend;
+const ACTIVE_ATT_KEY = 'teaching_hub_active_attendance';
+const SCAN_GRACE_MS = 20000;      // a QR stays valid this long after it rotates off screen (slow phones)
+const SUBMIT_LIMIT_MS = 5 * 60000; // time allowed between scanning and submitting the MSSV
+
+const VERDICTS = {
+  ok:       { status: 'valid',    label: 'Present',          reason: '' },
+  manual:   { status: 'valid',    label: 'Present',          reason: 'Marked by instructor' },
+  roster:   { status: 'unknown',  label: 'Needs review',     reason: 'Not on class roster' },
+  expired:  { status: 'rejected', label: 'Rejected',         reason: 'QR expired when scanned' },
+  slow:     { status: 'rejected', label: 'Rejected',         reason: 'Submitted too long after scan' },
+  device:   { status: 'rejected', label: 'Rejected',         reason: 'Device already used for another MSSV' },
+  invalid:  { status: 'rejected', label: 'Rejected',         reason: 'Invalid QR token' },
+  rejected: { status: 'rejected', label: 'Rejected',         reason: 'Rejected by instructor' },
+};
+const STATUS_STYLE = {
+  valid: 'heat-1', unknown: 'heat-3', rejected: 'heat-4', absent: 'bg-white/5 text-[var(--text-3)]',
+};
+const STATUS_LABEL = { valid: 'Present', unknown: 'Needs review', rejected: 'Rejected', absent: 'Absent' };
+
+const classLabelOf = (db, id) => {
+  const cl = db.classes.find(c => c.id === id);
+  const c = cl && db.courses.find(x => x.id === cl.courseId);
+  return cl ? `${c?.code || '?'} · Section ${cl.section}` : 'Deleted class';
+};
+const fmtTime = (t) => t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+const fmtDate = (t) => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+
+// Judge one check-in attempt from what the student's phone wrote (scan + submit, both server-timestamped).
+const judgeAttempt = (a, scan, secret) => {
+  const tok = AB.verifyToken(secret, a.k);
+  if (!tok || !scan || scan.k !== a.k) return 'invalid';
+  if (scan.at < tok.issuedAt - 3000 || scan.at > tok.issuedAt + AB.WINDOW_MS + SCAN_GRACE_MS) return 'expired';
+  if (a.at - scan.at > SUBMIT_LIMIT_MS) return 'slow';
+  return 'ok';
+};
+
+const evaluateSession = ({ checkins, scans, secret, roster, overrides }) => {
+  const byMssv = new Map(roster.map(s => [AB.sanitizeId(s.studentId), s]));
+  const attempts = Object.entries(checkins || {})
+    .map(([id, c]) => ({ id, ...c }))
+    .filter(a => a.mssv)
+    .sort((a, b) => (a.at || 0) - (b.at || 0));
+  const deviceOwner = new Map();
+  attempts.forEach(a => {
+    let code = judgeAttempt(a, scans?.[a.scanId], secret);
+    if (code === 'ok' && !byMssv.has(a.mssv)) code = 'roster';
+    if (code !== 'invalid' && code !== 'expired' && code !== 'slow' && a.dev) {
+      const owner = deviceOwner.get(a.dev);
+      if (owner && owner !== a.mssv) code = 'device';
+      else deviceOwner.set(a.dev, a.mssv);
+    }
+    a.code = code;
+    a.name = byMssv.get(a.mssv)?.name || '';
+  });
+
+  // One row per MSSV: keep the best attempt, then apply the instructor's manual decision.
+  const rank = { valid: 3, unknown: 2, rejected: 1 };
+  const people = new Map();
+  attempts.forEach(a => {
+    const p = people.get(a.mssv);
+    const better = !p || rank[VERDICTS[a.code].status] >= rank[VERDICTS[p.best.code].status];
+    people.set(a.mssv, { mssv: a.mssv, best: better ? a : p.best, tries: (p?.tries || 0) + 1 });
+  });
+  Object.entries(overrides || {}).forEach(([mssv, ov]) => {
+    if (!people.has(mssv) && ov === 'manual') people.set(mssv, { mssv, best: null, tries: 0 });
+  });
+  const rows = [...people.values()].map(p => {
+    const code = overrides?.[p.mssv] || p.best.code;
+    const v = VERDICTS[code];
+    if (p.best && overrides?.[p.mssv]) p.best.code = code;
+    return {
+      mssv: p.mssv, name: byMssv.get(p.mssv)?.name || '', status: v.status, code, reason: v.reason,
+      at: p.best?.at || null, tries: p.tries, onRoster: byMssv.has(p.mssv),
+    };
+  }).sort((a, b) => (b.at || 0) - (a.at || 0));
+  const seen = new Set(rows.filter(r => r.status !== 'rejected').map(r => r.mssv));
+  const absent = roster.filter(s => !seen.has(AB.sanitizeId(s.studentId)));
+  return { attempts, rows, absent };
+};
+
+const QRCodeSvg = ({ text, className = '' }) => {
+  const qr = useMemo(() => {
+    const q = window.qrcode(0, 'M');
+    q.addData(text); q.make();
+    const n = q.getModuleCount();
+    let d = '';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c + 3} ${r + 3}h1v1h-1z`;
+    return { size: n + 6, d };
+  }, [text]);
+  return (
+    <svg viewBox={`0 0 ${qr.size} ${qr.size}`} className={className} shapeRendering="crispEdges" role="img" aria-label="Attendance QR code">
+      <rect width={qr.size} height={qr.size} fill="#fff" />
+      <path d={qr.d} fill="#000" />
+    </svg>
+  );
+};
+
+const checkinUrl = (backend, sessionId, token) => {
+  const p = new URLSearchParams({ s: sessionId, k: token });
+  if (backend.kind === 'firebase') p.set('fb', AB.shortHost(backend.url));
+  return new URL('checkin.html', location.href).href + '?' + p.toString();
+};
+
+const downloadCsv = (rec) => {
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [['MSSV', 'Name', 'Status', 'Check-in time', 'Note'].map(esc).join(',')];
+  rec.records.forEach(r => lines.push([r.mssv, r.name, STATUS_LABEL[r.status], r.at ? new Date(r.at).toLocaleString() : '', r.reason].map(esc).join(',')));
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `attendance-${rec.title.replace(/[^\w]+/g, '-')}-${new Date(rec.startedAt).toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+const useAttendanceBackend = (url) => {
+  const [state, setState] = useState({ backend: null, error: null });
+  useEffect(() => {
+    let alive = true;
+    setState({ backend: null, error: null });
+    AB.connect(url)
+      .then(b => alive && setState({ backend: b, error: null }))
+      .catch(e => alive && setState({ backend: null, error: e.message }));
+    return () => { alive = false; };
+  }, [url]);
+  return state;
+};
+
+const LiveSession = ({ db, backend, active, setActive, onEnd }) => {
+  const roster = useMemo(() => db.students.filter(s => s.classId === active.classId), [db.students, active.classId]);
+  const [now, setNow] = useState(() => backend.now());
+  const [projector, setProjector] = useState(false);
+  const [scans, setScans] = useState({});
+  const [checkins, setCheckins] = useState({});
+  const [verdicts, setVerdicts] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const base = `att/${active.id}`;
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(backend.now()), 200);
+    return () => clearInterval(t);
+  }, [backend]);
+  useEffect(() => {
+    const off = [
+      backend.on(`${base}/scans`, v => setScans(v || {})),
+      backend.on(`${base}/checkins`, v => setCheckins(v || {})),
+      backend.on(`${base}/verdicts`, v => setVerdicts(v || {})),
+    ];
+    return () => off.forEach(fn => fn());
+  }, [backend, base]);
+  useEffect(() => {
+    if (!projector) return;
+    const onKey = (e) => { if (e.key === 'Escape') setProjector(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [projector]);
+
+  const idx = Math.floor(now / AB.WINDOW_MS);
+  const remaining = AB.WINDOW_MS - (now % AB.WINDOW_MS);
+  const url = useMemo(() => checkinUrl(backend, active.id, AB.makeToken(active.secret, idx)), [backend, active.id, active.secret, idx]);
+  const result = useMemo(
+    () => evaluateSession({ checkins, scans, secret: active.secret, roster, overrides: active.overrides }),
+    [checkins, scans, active.secret, active.overrides, roster]
+  );
+
+  // Publish verdicts so each student's phone shows the outcome.
+  useEffect(() => {
+    if (verdicts === null) return;
+    const patch = {};
+    result.attempts.forEach(a => {
+      const v = VERDICTS[a.code];
+      const cur = verdicts[a.id];
+      if (!cur || cur.code !== a.code || (cur.name || '') !== a.name) patch[a.id] = { code: a.code, status: v.status, name: a.name };
+    });
+    if (Object.keys(patch).length) backend.update(`${base}/verdicts`, patch).catch(() => {});
+  }, [result, verdicts, backend, base]);
+
+  const setOverride = (mssv, code) => {
+    const overrides = { ...(active.overrides || {}) };
+    if (code) overrides[mssv] = code; else delete overrides[mssv];
+    setActive({ ...active, overrides });
+  };
+
+  const present = result.rows.filter(r => r.status === 'valid').length;
+  const review = result.rows.filter(r => r.status === 'unknown').length;
+  const title = classLabelOf(db, active.classId);
+
+  const end = async () => {
+    if (!confirm('End this attendance session? Students will no longer be able to check in.')) return;
+    try { await backend.update(`${base}/meta`, { status: 'closed', closedAt: backend.stamp() }); }
+    catch (e) { if (!confirm(`Could not close the session online (${e.message}). Save the result anyway?`)) return; }
+    const records = [
+      ...result.rows.map(r => ({ mssv: r.mssv, name: r.name, status: r.status, at: r.at, reason: r.reason })),
+      ...result.absent
+        .filter(s => !result.rows.some(r => r.mssv === AB.sanitizeId(s.studentId)))
+        .map(s => ({ mssv: AB.sanitizeId(s.studentId), name: s.name, status: 'absent', at: null, reason: '' })),
+    ];
+    onEnd({ id: active.id, classId: active.classId, title, startedAt: active.startedAt, endedAt: backend.now(), rosterSize: roster.length, records });
+  };
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+  };
+
+  const Countdown = ({ big = false }) => (
+    <div className={big ? 'w-full max-w-[min(70vh,80vw)]' : 'w-full'}>
+      <div className={`flex justify-between ${big ? 'text-lg' : 'text-xs'} text-[var(--text-2)] mb-1.5`}>
+        <span>New code in</span><span className="font-semibold text-white tabular-nums">{Math.ceil(remaining / 1000)}s</span>
+      </div>
+      <div className={`${big ? 'h-2.5' : 'h-1.5'} rounded-full bg-white/10 overflow-hidden`}>
+        <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500" style={{ width: (remaining / AB.WINDOW_MS) * 100 + '%', transition: 'width 0.2s linear' }} />
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs uppercase tracking-wider text-emerald-300 font-semibold">Live session</span>
+          </div>
+          <h1 className="text-2xl font-bold mt-1">{title}</h1>
+          <p className="text-[var(--text-2)] text-sm mt-1">Started {fmtTime(active.startedAt)} · Session <code className="text-violet-300">{active.id}</code></p>
+        </div>
+        <div className="flex gap-2">
+          <Btn variant="ghost" icon="maximize" onClick={() => setProjector(true)}>Projector mode</Btn>
+          <Btn variant="danger" icon="square" onClick={end}>End session</Btn>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(280px,380px)_1fr] gap-4">
+        <div className="glass rounded-2xl p-5 flex flex-col items-center gap-4">
+          <QRCodeSvg text={url} className="w-full max-w-[340px] rounded-xl" />
+          <Countdown />
+          <div className="grid grid-cols-3 gap-2 w-full text-center">
+            <div className="rounded-xl bg-emerald-500/10 py-2"><div className="text-2xl font-bold text-emerald-300">{present}</div><div className="text-[11px] text-[var(--text-2)]">Present</div></div>
+            <div className="rounded-xl bg-amber-500/10 py-2"><div className="text-2xl font-bold text-amber-300">{review}</div><div className="text-[11px] text-[var(--text-2)]">Review</div></div>
+            <div className="rounded-xl bg-white/5 py-2"><div className="text-2xl font-bold">{result.absent.length}</div><div className="text-[11px] text-[var(--text-2)]">Not yet</div></div>
+          </div>
+          <div className="flex gap-2 w-full">
+            <button onClick={copy} className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs bg-white/5 hover:bg-white/10">
+              <Icon name={copied ? 'check' : 'copy'} size={14} /> {copied ? 'Copied' : 'Copy current link'}
+            </button>
+            <a href={url} target="_blank" rel="noopener" className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs bg-white/5 hover:bg-white/10">
+              <Icon name="external-link" size={14} /> Open as student
+            </a>
+          </div>
+          {backend.kind === 'local' && (
+            <p className="text-[11px] text-amber-300/90 text-center">Demo mode: only check-ins from this browser are received. Connect Firebase in Settings for real phones.</p>
+          )}
+        </div>
+
+        <div className="space-y-4 min-w-0">
+          <div className="glass rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+              <h3 className="font-semibold">Check-ins</h3>
+              <span className="text-xs text-[var(--text-2)]">{present}/{roster.length} on roster present</span>
+            </div>
+            <div className="overflow-x-auto scrollbar-thin">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-wider text-[var(--text-3)]">
+                  <tr><th className="text-left px-5 py-2.5">MSSV</th><th className="text-left px-3 py-2.5">Name</th><th className="text-left px-3 py-2.5">Time</th><th className="text-left px-3 py-2.5">Status</th><th className="px-5 py-2.5 text-right">Action</th></tr>
+                </thead>
+                <tbody>
+                  {result.rows.length === 0 && (
+                    <tr><td colSpan="5" className="px-5 py-10 text-center text-[var(--text-3)]">Waiting for students to scan…</td></tr>
+                  )}
+                  {result.rows.map(r => (
+                    <tr key={r.mssv} className="border-t border-[var(--border-2)] row-hover">
+                      <td className="px-5 py-2.5 font-mono">{r.mssv}</td>
+                      <td className="px-3 py-2.5">{r.name || <span className="text-[var(--text-3)]">Unknown</span>}</td>
+                      <td className="px-3 py-2.5 text-[var(--text-2)] tabular-nums">{fmtTime(r.at)}</td>
+                      <td className="px-3 py-2.5">
+                        <span className={'badge ' + STATUS_STYLE[r.status]}>{STATUS_LABEL[r.status]}</span>
+                        {r.reason && <div className="text-[11px] text-[var(--text-3)] mt-0.5">{r.reason}{r.tries > 1 ? ` · ${r.tries} tries` : ''}</div>}
+                      </td>
+                      <td className="px-5 py-2.5 text-right whitespace-nowrap">
+                        {r.status !== 'valid' && <button title="Mark present" onClick={() => setOverride(r.mssv, 'manual')} className="p-1.5 rounded-md text-emerald-300 hover:bg-emerald-500/15"><Icon name="check" size={16} /></button>}
+                        {r.status !== 'rejected' && <button title="Reject" onClick={() => setOverride(r.mssv, 'rejected')} className="p-1.5 rounded-md text-red-300 hover:bg-red-500/15"><Icon name="x" size={16} /></button>}
+                        {active.overrides?.[r.mssv] && <button title="Undo manual decision" onClick={() => setOverride(r.mssv, null)} className="p-1.5 rounded-md text-[var(--text-2)] hover:bg-white/10"><Icon name="undo-2" size={16} /></button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="glass rounded-2xl p-5">
+            <h3 className="font-semibold mb-3">Not checked in yet <span className="text-[var(--text-3)] font-normal">({result.absent.length})</span></h3>
+            {result.absent.length === 0
+              ? <p className="text-sm text-[var(--text-3)]">{roster.length ? 'Everyone on the roster has checked in.' : 'This class has no students on its roster yet.'}</p>
+              : <div className="flex flex-wrap gap-2">
+                  {result.absent.map(s => (
+                    <button key={s.id} onClick={() => setOverride(AB.sanitizeId(s.studentId), 'manual')} title="Mark present manually"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs bg-white/5 hover:bg-emerald-500/15 hover:text-emerald-200">
+                      <span className="font-mono">{s.studentId}</span><span className="text-[var(--text-2)]">{s.name}</span><Icon name="plus" size={12} />
+                    </button>
+                  ))}
+                </div>}
+          </div>
+        </div>
+      </div>
+
+      {projector && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 bg-[var(--bg-0)] flex flex-col items-center justify-center gap-5 p-6">
+          <button onClick={() => setProjector(false)} className="absolute top-5 right-5 text-[var(--text-2)] hover:text-white"><Icon name="x" size={28} /></button>
+          <h2 className="text-3xl font-bold text-center">{title} · Điểm danh</h2>
+          <p className="text-[var(--text-2)] text-lg -mt-3">Quét mã QR và nhập MSSV</p>
+          <QRCodeSvg text={url} className="w-[min(70vh,80vw)] rounded-2xl" />
+          <Countdown big />
+          <div className="text-xl"><span className="font-bold text-emerald-300 text-3xl tabular-nums">{present}</span> <span className="text-[var(--text-2)]">/ {roster.length} checked in</span></div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
+const Attendance = ({ db, setDB }) => {
+  const [active, setActiveState] = useState(() => { try { return JSON.parse(localStorage.getItem(ACTIVE_ATT_KEY)); } catch { return null; } });
+  const setActive = (a) => {
+    setActiveState(a);
+    if (a) localStorage.setItem(ACTIVE_ATT_KEY, JSON.stringify(a)); else localStorage.removeItem(ACTIVE_ATT_KEY);
+  };
+  // A running session stays on the backend it was started with.
+  const { backend, error } = useAttendanceBackend(active ? active.backendUrl : AB.getSavedUrl());
+  const [classId, setClassId] = useState(db.classes[0]?.id || '');
+  const [starting, setStarting] = useState(false);
+  const history = db.attendance || [];
+
+  const start = async () => {
+    if (!classId) return;
+    setStarting(true);
+    try {
+      const id = AB.randomId(8);
+      const startedAt = backend.now();
+      await backend.set(`att/${id}/meta`, { title: classLabelOf(db, classId), status: 'open', startedAt: backend.stamp() });
+      setActive({ id, classId, secret: AB.randomId(24), startedAt, backendUrl: backend.url, overrides: {} });
+    } catch (e) {
+      alert('Could not start session: ' + e.message);
+    } finally { setStarting(false); }
+  };
+
+  const onEnd = (record) => {
+    setDB({ ...db, attendance: [record, ...history] });
+    setActive(null);
+  };
+  const del = (id) => {
+    if (!confirm('Delete this attendance record?')) return;
+    setDB({ ...db, attendance: history.filter(h => h.id !== id) });
+  };
+
+  if (error) {
+    return (
+      <div className="glass rounded-2xl p-8 max-w-xl fade-in">
+        <h1 className="text-xl font-bold mb-2">Attendance backend unavailable</h1>
+        <p className="text-sm text-red-300 mb-4">{error}</p>
+        <p className="text-sm text-[var(--text-2)]">Check the Firebase Database URL in Settings.{active && ' You can also discard the running session.'}</p>
+        {active && <div className="mt-4"><Btn variant="danger" icon="trash-2" onClick={() => confirm('Discard the running session without saving?') && setActive(null)}>Discard session</Btn></div>}
+      </div>
+    );
+  }
+  if (!backend) return <div className="text-[var(--text-2)] fade-in">Connecting to attendance backend…</div>;
+  if (active) return <LiveSession db={db} backend={backend} active={active} setActive={setActive} onEnd={onEnd} />;
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div>
+        <h1 className="text-2xl font-bold">Attendance</h1>
+        <p className="text-[var(--text-2)] text-sm mt-1">Students scan a QR code that changes every 10 seconds, then enter their MSSV.</p>
+      </div>
+
+      <div className="glass rounded-2xl p-5">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[220px]">
+            <Field label="Class">
+              <select className={inputClass} value={classId} onChange={e => setClassId(e.target.value)}>
+                {db.classes.map(cl => <option key={cl.id} value={cl.id}>{classLabelOf(db, cl.id)} · {cl.schedule}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="mb-3">
+            <button onClick={start} disabled={!classId || starting}
+              className="btn-primary text-white inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium disabled:opacity-50">
+              <Icon name="qr-code" size={16} /> {starting ? 'Starting…' : 'Start attendance'}
+            </button>
+          </div>
+        </div>
+        <div className={`text-xs flex items-center gap-2 ${backend.kind === 'firebase' ? 'text-emerald-300' : 'text-amber-300'}`}>
+          <Icon name={backend.kind === 'firebase' ? 'cloud' : 'monitor'} size={14} />
+          {backend.kind === 'firebase'
+            ? <>Connected to Firebase <code>{AB.shortHost(backend.url)}</code></>
+            : <>Demo mode: check-ins only work in this browser. Add a Firebase Database URL in Settings so students' phones can check in.</>}
+        </div>
+      </div>
+
+      <div className="glass rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-[var(--border)]"><h3 className="font-semibold">History</h3></div>
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-sm">
+            <thead className="text-xs uppercase tracking-wider text-[var(--text-3)]">
+              <tr><th className="text-left px-5 py-2.5">Date</th><th className="text-left px-3 py-2.5">Class</th><th className="text-left px-3 py-2.5">Present</th><th className="text-left px-3 py-2.5">Review</th><th className="text-left px-3 py-2.5">Absent</th><th className="px-5 py-2.5 text-right">Actions</th></tr>
+            </thead>
+            <tbody>
+              {history.length === 0 && <tr><td colSpan="6" className="px-5 py-10 text-center text-[var(--text-3)]">No sessions yet.</td></tr>}
+              {history.map(h => {
+                const count = (s) => h.records.filter(r => r.status === s).length;
+                return (
+                  <tr key={h.id} className="border-t border-[var(--border-2)] row-hover">
+                    <td className="px-5 py-2.5">{fmtDate(h.startedAt)}</td>
+                    <td className="px-3 py-2.5">{h.title}</td>
+                    <td className="px-3 py-2.5"><span className="badge heat-1">{count('valid')}/{h.rosterSize}</span></td>
+                    <td className="px-3 py-2.5">{count('unknown') || '—'}</td>
+                    <td className="px-3 py-2.5">{count('absent') || '—'}</td>
+                    <td className="px-5 py-2.5 text-right whitespace-nowrap">
+                      <button title="Download CSV" onClick={() => downloadCsv(h)} className="p-1.5 rounded-md text-[var(--text-2)] hover:text-white hover:bg-white/10"><Icon name="download" size={15} /></button>
+                      <button title="Delete" onClick={() => del(h.id)} className="p-1.5 rounded-md text-[var(--text-2)] hover:text-red-400 hover:bg-white/10"><Icon name="trash-2" size={15} /></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
 //  SETTINGS
 // ============================================================
 const Settings = ({ db, setDB }) => {
@@ -938,6 +1378,19 @@ const Settings = ({ db, setDB }) => {
     fr.readAsText(file);
   };
   const saveUser = () => { setDB({ ...db, user }); alert('Profile saved.'); };
+  const [fbUrl, setFbUrl] = useState(AB.getSavedUrl());
+  const [fbStatus, setFbStatus] = useState('');
+  const saveFirebase = async () => {
+    const url = AB.saveUrl(fbUrl);
+    setFbUrl(url);
+    if (!url) { setFbStatus('Cleared. Attendance runs in demo mode.'); return; }
+    setFbStatus('Testing connection…');
+    try {
+      const b = await AB.connect(url);
+      await b.set('att/_ping', { at: b.stamp() });
+      setFbStatus('Connected. Students can now check in from their phones.');
+    } catch (e) { setFbStatus('Saved, but the test failed: ' + e.message); }
+  };
 
   return (
     <div className="space-y-4 max-w-3xl fade-in">
@@ -965,6 +1418,18 @@ const Settings = ({ db, setDB }) => {
             <input type="file" accept="application/json" className="hidden" onChange={importJson} />
           </label>
           <Btn variant="danger" icon="trash-2" onClick={reset}>Reset to demo data</Btn>
+        </div>
+      </div>
+
+      <div className="glass rounded-2xl p-5">
+        <h3 className="font-semibold mb-2">Attendance backend (Firebase)</h3>
+        <p className="text-sm text-[var(--text-2)] mb-4">QR check-in needs a shared database so students' phones can reach your screen. Create a free Firebase project, enable <b>Realtime Database</b>, and paste its URL here. Leave empty for demo mode (same browser only). Setup steps are in the README.</p>
+        <Field label="Realtime Database URL">
+          <input className={inputClass} value={fbUrl} onChange={e=>setFbUrl(e.target.value)} placeholder="https://your-project-default-rtdb.asia-southeast1.firebasedatabase.app" />
+        </Field>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs text-[var(--text-2)]">{fbStatus}</span>
+          <Btn icon="save" onClick={saveFirebase}>Save &amp; test</Btn>
         </div>
       </div>
 
@@ -1485,6 +1950,7 @@ const App = () => {
     courses: <Courses db={db} setDB={setDB} />,
     classes: <Classes db={db} setDB={setDB} />,
     students: <Students db={db} setDB={setDB} />,
+    attendance: <Attendance db={db} setDB={setDB} />,
     assignments: <Assignments db={db} setDB={setDB} />,
     matrix: <Matrix db={db} setDB={setDB} />,
     settings: <Settings db={db} setDB={setDB} />,
