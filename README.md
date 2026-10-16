@@ -26,7 +26,7 @@ Once deployed on GitHub Pages, it will be available at:
 
 ## QR attendance
 
-1. Teacher: **Attendance** → pick a class → **Start attendance**. Use **Projector mode** to show a big QR.
+1. Teacher: **Attendance** → pick a class → **Start attendance**. A separate window (`present.html`) opens with only the QR code: drag it to the projector and click **Toàn màn hình**. The main window keeps the live check-in list. If the browser blocked the popup, click **Open QR window**.
 2. Students scan the QR with their phone camera. It opens `checkin.html`, where they enter their MSSV.
 3. The teacher's screen validates each check-in live and the student's phone shows the result.
 4. **End session** saves the result to History; download it as CSV (opens fine in Excel).

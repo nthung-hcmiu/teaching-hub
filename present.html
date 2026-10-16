@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0f0f1e" />
+<title>Mã QR điểm danh · Edusoft</title>
+<style>
+  :root {
+    --bg-0: #0f0f1e; --accent: #8b5cf6; --accent-2: #6366f1;
+    --text-1: #f1f5f9; --text-2: #94a3b8; --text-3: #64748b; --success: #34d399;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: radial-gradient(1000px 500px at 50% -10%, rgba(139, 92, 246, 0.2), transparent 60%), var(--bg-0);
+    color: var(--text-1);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2.2vh; padding: 3vh 16px; overflow: hidden;
+  }
+  h1 { margin: 0; font-size: clamp(22px, 4.2vh, 44px); text-align: center; }
+  .sub { margin: 0; color: var(--text-2); font-size: clamp(15px, 2.6vh, 26px); text-align: center; }
+  #qr { width: min(64vh, 90vw); aspect-ratio: 1; border-radius: 18px; overflow: hidden; background: #fff; cursor: zoom-in; }
+  #qr svg { display: block; width: 100%; height: 100%; }
+  .bar-wrap { width: min(64vh, 90vw); }
+  .bar-label { display: flex; justify-content: space-between; color: var(--text-2); font-size: clamp(13px, 2vh, 20px); margin-bottom: 8px; }
+  .bar-label b { color: var(--text-1); font-variant-numeric: tabular-nums; }
+  .bar { height: 10px; border-radius: 99px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .2s linear; }
+  .count { font-size: clamp(16px, 2.6vh, 26px); color: var(--text-2); }
+  .count b { color: var(--success); font-size: 1.5em; font-variant-numeric: tabular-nums; }
+  .msg { text-align: center; color: var(--text-2); font-size: clamp(16px, 2.6vh, 24px); max-width: 640px; }
+  .msg b { display: block; color: var(--text-1); font-size: 1.4em; margin-bottom: 8px; }
+  #fs { position: fixed; top: 14px; right: 14px; padding: 8px 14px; border-radius: 10px; border: 0; cursor: pointer;
+    background: rgba(255, 255, 255, .08); color: var(--text-2); font-size: 13px; }
+  #fs:hover { background: rgba(255, 255, 255, .15); color: var(--text-1); }
+  .brand { position: fixed; bottom: 12px; left: 0; right: 0; text-align: center; color: var(--text-3); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<button id="fs" type="button">⛶ Toàn màn hình</button>
+
+<div id="live" class="hidden" style="display:contents">
+  <h1 id="title">Điểm danh</h1>
+  <p class="sub">Mở camera điện thoại, quét mã QR rồi nhập MSSV</p>
+  <div id="qr" title="Bấm đúp để phóng toàn màn hình"></div>
+  <div class="bar-wrap">
+    <div class="bar-label"><span>Mã mới sau</span><b id="secs">10s</b></div>
+    <div class="bar"><div id="bar" style="width:100%"></div></div>
+  </div>
+  <div class="count" id="count"></div>
+</div>
+
+<div id="msg" class="msg"><b>Đang mở phiên điểm danh…</b>Cửa sổ này sẽ hiện mã QR ngay khi phiên bắt đầu.</div>
+<p class="brand">Edusoft</p>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="attendance-backend.js"></script>
+<script>
+(function () {
+  const AB = window.AttendanceBackend;
+  const $ = (id) => document.getElementById(id);
+  const read = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+
+  let active = null, backend = null, connectingFor = null, lastIdx = null, everLive = false;
+
+  const showMsg = (title, body) => {
+    $('live').classList.add('hidden');
+    $('msg').classList.remove('hidden');
+    $('msg').innerHTML = `<b>${title}</b>${body || ''}`;
+  };
+
+  const renderStats = () => {
+    const st = read(AB.STATS_KEY);
+    if (!active) return;
+    if (st && st.id === active.id) {
+      $('title').textContent = (st.title || 'Lớp học') + ' · Điểm danh';
+      $('count').innerHTML = `<b>${st.present}</b> / ${st.roster} sinh viên đã điểm danh`;
+    }
+  };
+
+  // Pick up the session the main window started, ended or replaced.
+  const sync = () => {
+    const a = read(AB.ACTIVE_KEY);
+    if (!a) {
+      active = null; backend = null; connectingFor = null; lastIdx = null;
+      if (everLive) showMsg('Phiên điểm danh đã kết thúc', 'Bạn có thể đóng cửa sổ này.');
+      return;
+    }
+    if (!active || active.id !== a.id) { lastIdx = null; }
+    active = a;
+    const key = a.id + '|' + (a.backendUrl || '');
+    if (connectingFor !== key) {
+      connectingFor = key; backend = null;
+      AB.connect(a.backendUrl).then(b => { if (connectingFor === key) backend = b; })
+        .catch(e => showMsg('Không kết nối được máy chủ', e.message));
+    }
+    renderStats();
+  };
+
+  const tick = () => {
+    if (!active || !backend) return;
+    const now = backend.now();
+    const idx = Math.floor(now / AB.WINDOW_MS);
+    const remaining = AB.WINDOW_MS - (now % AB.WINDOW_MS);
+    if (idx !== lastIdx) {
+      lastIdx = idx;
+      const qr = AB.qrPath(AB.checkinUrl(backend, active.id, AB.makeToken(active.secret, idx)));
+      $('qr').innerHTML = `<svg viewBox="0 0 ${qr.size} ${qr.size}" shape-rendering="crispEdges" role="img" aria-label="Attendance QR code"><rect width="${qr.size}" height="${qr.size}" fill="#fff"/><path d="${qr.d}" fill="#000"/></svg>`;
+      if (!everLive || !$('msg').classList.contains('hidden')) {
+        everLive = true;
+        $('msg').classList.add('hidden');
+        $('live').classList.remove('hidden');
+      }
+    }
+    $('secs').textContent = Math.ceil(remaining / 1000) + 's';
+    $('bar').style.width = (remaining / AB.WINDOW_MS) * 100 + '%';
+  };
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen?.().catch(() => {});
+  };
+  $('fs').addEventListener('click', toggleFullscreen);
+  $('qr').addEventListener('dblclick', toggleFullscreen);
+  document.addEventListener('fullscreenchange', () => $('fs').classList.toggle('hidden', !!document.fullscreenElement));
+
+  window.addEventListener('storage', (e) => {
+    if (e.key === AB.ACTIVE_KEY || e.key === null) sync();
+    if (e.key === AB.STATS_KEY) renderStats();
+  });
+  sync();
+  setInterval(tick, 200);
+})();
+</script>
+</body>
+</html>

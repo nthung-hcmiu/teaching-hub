@@ -182,7 +182,12 @@
 
     let ready = false;
     backend.on(`att/${sid}/meta`, (meta) => {
-      if (!meta) { $('title').textContent = ''; fatal('Phiên điểm danh không tồn tại', 'Hãy quét lại mã QR trên màn hình lớp.'); return; }
+      if (!meta) {
+        $('title').textContent = '';
+        if (backend.kind === 'local') fatal('Phiên điểm danh không tồn tại', 'Mã QR này được tạo khi máy giảng viên chưa kết nối Firebase. Giảng viên cần kết nối Firebase rồi mở phiên điểm danh mới.');
+        else fatal('Phiên điểm danh không tồn tại', 'Hãy quét lại mã QR trên màn hình lớp.');
+        return;
+      }
       $('title').textContent = meta.title || 'Lớp học';
       if (meta.status !== 'open') {
         const done = ss.get(attemptKey);

@@ -145,10 +145,29 @@
     };
   }
 
+  // Link the QR points to. The Firebase host rides along so phones need no setup.
+  const checkinUrl = (backend, sessionId, token) => {
+    const p = new URLSearchParams({ s: sessionId, k: token });
+    if (backend.kind === 'firebase') p.set('fb', shortHost(backend.url));
+    return new URL('checkin.html', location.href).href + '?' + p.toString();
+  };
+
+  // QR modules as one SVG path (needs qrcode-generator loaded as window.qrcode).
+  const qrPath = (text) => {
+    const q = window.qrcode(0, 'M');
+    q.addData(text); q.make();
+    const n = q.getModuleCount();
+    let d = '';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c + 3} ${r + 3}h1v1h-1z`;
+    return { size: n + 6, d };
+  };
+
   const connect = (url) => (url ? firebaseBackend(normalizeUrl(url)) : Promise.resolve(localBackend()));
 
   window.AttendanceBackend = {
     WINDOW_MS, connect, randomId, normalizeUrl, shortHost, getSavedUrl, saveUrl,
-    sanitizeId, deviceId, makeToken, verifyToken,
+    sanitizeId, deviceId, makeToken, verifyToken, checkinUrl, qrPath,
+    ACTIVE_KEY: 'teaching_hub_active_attendance',
+    STATS_KEY: 'edusoft_qr_stats',
   };
 })();
